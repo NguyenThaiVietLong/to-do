@@ -1,4 +1,4 @@
-import { mutate, readState } from "@/lib/db";
+import { insertList, readLists } from "@/lib/db";
 import { parseNewList } from "@/lib/validate";
 import { requireSession } from "@/lib/guard";
 
@@ -6,7 +6,7 @@ export async function GET() {
   const denied = await requireSession();
   if (denied !== null) return denied;
 
-  return Response.json((await readState()).lists);
+  return Response.json(await readLists());
 }
 
 export async function POST(request: Request) {
@@ -22,10 +22,5 @@ export async function POST(request: Request) {
     );
   }
 
-  await mutate((s) => ({
-    state: { ...s, lists: [...s.lists, list] },
-    result: list,
-  }));
-
-  return Response.json(list, { status: 201 });
+  return Response.json(await insertList(list), { status: 201 });
 }

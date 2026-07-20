@@ -1,4 +1,4 @@
-import { emptyState, writeState } from "@/lib/db";
+import { emptyState, replaceState } from "@/lib/db";
 import { buildSeed } from "@/lib/seed";
 import { requireSession } from "@/lib/guard";
 
@@ -17,5 +17,5 @@ export async function POST(request: Request) {
     body !== null &&
     (body as Record<string, unknown>).seed === true;
 
-  return Response.json(await writeState(seed ? buildSeed() : emptyState()));
+  return Response.json(await replaceState(seed ? buildSeed() : emptyState()));
 }

@@ -1,6 +1,5 @@
-import { mutate } from "@/lib/db";
+import { deleteTask, updateTask } from "@/lib/db";
 import { parseTaskPatch } from "@/lib/validate";
-import type { Task } from "@/lib/types";
 import { requireSession } from "@/lib/guard";
 
 export async function PATCH(
@@ -17,16 +16,7 @@ export async function PATCH(
     return Response.json({ error: "Invalid task patch." }, { status: 400 });
   }
 
-  const updated = await mutate((s) => {
-    const task = s.tasks.find((t) => t.id === id);
-    if (task === undefined) return null;
-    const next: Task = { ...task, ...patch };
-    return {
-      state: { ...s, tasks: s.tasks.map((t) => (t.id === id ? next : t)) },
-      result: next,
-    };
-  });
-
+  const updated = await updateTask(id, patch);
   if (updated === null) {
     return Response.json({ error: `No such task: ${id}` }, { status: 404 });
   }
@@ -41,14 +31,7 @@ export async function DELETE(
   if (denied !== null) return denied;
 
   const { id } = await ctx.params;
-
-  const deleted = await mutate((s) =>
-    s.tasks.some((t) => t.id === id)
-      ? { state: { ...s, tasks: s.tasks.filter((t) => t.id !== id) }, result: id }
-      : null,
-  );
-
-  if (deleted === null) {
+  if (!(await deleteTask(id))) {
     return Response.json({ error: `No such task: ${id}` }, { status: 404 });
   }
   return new Response(null, { status: 204 });

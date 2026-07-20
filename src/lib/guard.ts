@@ -16,6 +16,6 @@ export async function requireSession(): Promise<Response | null> {
     );
   }
   const jar = await cookies();
-  if (verifySessionToken(jar.get(SESSION_COOKIE)?.value)) return null;
+  if (await verifySessionToken(jar.get(SESSION_COOKIE)?.value)) return null;
   return Response.json({ error: "Not signed in." }, { status: 401 });
 }

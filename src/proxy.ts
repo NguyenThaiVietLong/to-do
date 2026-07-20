@@ -11,7 +11,7 @@ import { SESSION_COOKIE, isMisconfigured, verifySessionToken } from "@/lib/auth"
  * login page, but it is not the only thing standing between the internet and
  * the data.
  */
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const isApi = pathname.startsWith("/api/");
 
@@ -26,7 +26,7 @@ export function proxy(request: NextRequest) {
         });
   }
 
-  if (verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) {
+  if (await verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value)) {
     return NextResponse.next();
   }
 

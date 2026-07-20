@@ -1,85 +1,278 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { neon } from "@neondatabase/serverless";
 import { LISTS } from "./seed";
-import type { AppState } from "./types";
+import type { AppState, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
-/* JSON file store                                                             */
+/* Postgres store                                                              */
 /*                                                                             */
-/* Server-side only — never import this from a "use client" module. The whole  */
-/* state is one file: small enough to rewrite on every mutation, and readable   */
-/* by eye when something looks wrong.                                          */
+/* Server-side only — never import this from a "use client" module.            */
+/*                                                                             */
+/* Dates are stored as TEXT, not DATE. Every date in this app is a local        */
+/* calendar `YYYY-MM-DD` string (see date.ts); letting the driver hand back a    */
+/* Date would reintroduce exactly the UTC slide that convention exists to       */
+/* avoid. Steps are JSONB — they are only ever read and written whole.          */
 /* -------------------------------------------------------------------------- */
 
-// DATA_DIR points at the mounted volume when deployed; locally it is ./data.
-// Resolved once per process — the file must not move under a running server.
-const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "db.json");
+type Sql = ReturnType<typeof neon>;
 
-/** A fresh install: the default lists, no tasks. */
+let client: Sql | null = null;
+
+function sql(): Sql {
+  if (client === null) {
+    const url = process.env.DATABASE_URL;
+    if (url === undefined || url === "") {
+      throw new Error("DATABASE_URL is not set.");
+    }
+    client = neon(url);
+  }
+  return client;
+}
+
+/** The default lists a fresh database starts with. */
 export function emptyState(): AppState {
   return { lists: LISTS.map((l) => ({ ...l })), tasks: [] };
 }
 
-function isValid(state: unknown): state is AppState {
-  if (typeof state !== "object" || state === null) return false;
-  const s = state as AppState;
-  return Array.isArray(s.lists) && Array.isArray(s.tasks);
-}
+/* -------------------------------------------------------------------------- */
+/* Schema                                                                      */
+/* -------------------------------------------------------------------------- */
 
-async function readRaw(): Promise<AppState> {
-  try {
-    const parsed: unknown = JSON.parse(await fs.readFile(DB_PATH, "utf8"));
-    return isValid(parsed) ? parsed : emptyState();
-  } catch {
-    // Missing on first run, or corrupt — either way, start from empty rather
-    // than failing every request.
-    return emptyState();
+// One-shot per process. The schema is small and stable enough that
+// CREATE TABLE IF NOT EXISTS beats carrying a migration tool.
+let ready: Promise<void> | null = null;
+
+async function migrate(): Promise<void> {
+  const db = sql();
+
+  await db`
+    CREATE TABLE IF NOT EXISTS lists (
+      id   TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon TEXT NOT NULL,
+      seq  BIGSERIAL
+    )
+  `;
+  await db`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id           TEXT PRIMARY KEY,
+      list_id      TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+      title        TEXT NOT NULL,
+      note         TEXT NOT NULL DEFAULT '',
+      completed    BOOLEAN NOT NULL DEFAULT FALSE,
+      completed_at TEXT,
+      created_at   TEXT NOT NULL,
+      due_date     TEXT,
+      my_day       BOOLEAN NOT NULL DEFAULT FALSE,
+      important    BOOLEAN NOT NULL DEFAULT FALSE,
+      steps        JSONB NOT NULL DEFAULT '[]'::jsonb,
+      seq          BIGSERIAL
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS tasks_list_id_idx ON tasks (list_id)`;
+
+  // Seed the default lists once, on a genuinely empty database. ON CONFLICT
+  // makes this safe to race — two cold starts at once can't duplicate them.
+  for (const list of LISTS) {
+    await db`
+      INSERT INTO lists (id, name, icon) VALUES (${list.id}, ${list.name}, ${list.icon})
+      ON CONFLICT (id) DO NOTHING
+    `;
   }
 }
 
-async function writeRaw(state: AppState): Promise<void> {
-  await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
-  // Write-then-rename: a crash mid-write leaves the old file intact instead of
-  // a half-written one.
-  const tmp = `${DB_PATH}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(state, null, 2), "utf8");
-  await fs.rename(tmp, DB_PATH);
+function init(): Promise<void> {
+  if (ready === null) {
+    ready = migrate().catch((err: unknown) => {
+      // Don't cache a failed migration, or every later request fails with it.
+      ready = null;
+      throw err;
+    });
+  }
+  return ready;
 }
 
-// Read-modify-write is not atomic on its own, so every access goes through one
-// promise chain. Two requests arriving together queue instead of interleaving —
-// otherwise the second read sees pre-first-write state and drops that change.
-let queue: Promise<unknown> = Promise.resolve();
+/* -------------------------------------------------------------------------- */
+/* Row mapping                                                                 */
+/* -------------------------------------------------------------------------- */
 
-function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = queue.then(fn, fn);
-  queue = run.catch(() => undefined);
-  return run;
+type Row = Record<string, unknown>;
+
+function toList(r: Row): TaskList {
+  return { id: r.id as string, name: r.name as string, icon: r.icon as string };
 }
 
-export function readState(): Promise<AppState> {
-  return withLock(readRaw);
+function toTask(r: Row): Task {
+  return {
+    id: r.id as string,
+    listId: r.list_id as string,
+    title: r.title as string,
+    note: r.note as string,
+    completed: r.completed as boolean,
+    completedAt: (r.completed_at as string | null) ?? null,
+    createdAt: r.created_at as string,
+    dueDate: (r.due_date as string | null) ?? null,
+    myDay: r.my_day as boolean,
+    important: r.important as boolean,
+    steps: (r.steps as Step[] | null) ?? [],
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Reads                                                                       */
+/* -------------------------------------------------------------------------- */
+
+export async function readState(): Promise<AppState> {
+  await init();
+  const db = sql();
+  // Newest task first, matching the old in-memory prepend.
+  const [lists, tasks] = await Promise.all([
+    db`SELECT * FROM lists ORDER BY seq ASC`,
+    db`SELECT * FROM tasks ORDER BY seq DESC`,
+  ]);
+  return {
+    lists: (lists as Row[]).map(toList),
+    tasks: (tasks as Row[]).map(toTask),
+  };
+}
+
+export async function readLists(): Promise<TaskList[]> {
+  await init();
+  const rows = await sql()`SELECT * FROM lists ORDER BY seq ASC`;
+  return (rows as Row[]).map(toList);
+}
+
+export async function readTasks(): Promise<Task[]> {
+  await init();
+  const rows = await sql()`SELECT * FROM tasks ORDER BY seq DESC`;
+  return (rows as Row[]).map(toTask);
+}
+
+export async function listExists(id: string): Promise<boolean> {
+  await init();
+  const rows = await sql()`SELECT 1 FROM lists WHERE id = ${id}`;
+  return (rows as Row[]).length > 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Writes                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export async function insertTask(task: Task): Promise<Task> {
+  await init();
+  const rows = await sql()`
+    INSERT INTO tasks
+      (id, list_id, title, note, completed, completed_at, created_at, due_date,
+       my_day, important, steps)
+    VALUES
+      (${task.id}, ${task.listId}, ${task.title}, ${task.note}, ${task.completed},
+       ${task.completedAt}, ${task.createdAt}, ${task.dueDate}, ${task.myDay},
+       ${task.important}, ${JSON.stringify(task.steps)}::jsonb)
+    RETURNING *
+  `;
+  return toTask((rows as Row[])[0]);
 }
 
 /**
- * Read, transform, write — all inside the lock. Return `null` from `fn` to
- * abort the write (used for "not found", which must not rewrite the file).
+ * Apply a validated patch. Built as a fixed COALESCE update rather than a
+ * dynamic column list: every parameter is bound, and an absent field is simply
+ * null, which leaves the column alone.
+ *
+ * The nullable columns need a separate "is this key present" flag, because for
+ * them null is a value the caller may legitimately be setting.
  */
-export function mutate<T>(
-  fn: (state: AppState) => { state: AppState; result: T } | null,
-): Promise<T | null> {
-  return withLock(async () => {
-    const next = fn(await readRaw());
-    if (next === null) return null;
-    await writeRaw(next.state);
-    return next.result;
-  });
+export async function updateTask(
+  id: string,
+  patch: Partial<Task>,
+): Promise<Task | null> {
+  await init();
+  // Every parameter is cast explicitly. Bound values arrive untyped, and a bare
+  // NULL inside COALESCE/CASE makes Postgres give up on inferring the type.
+  const rows = await sql()`
+    UPDATE tasks SET
+      list_id      = COALESCE(${patch.listId ?? null}::text, list_id),
+      title        = COALESCE(${patch.title ?? null}::text, title),
+      note         = COALESCE(${patch.note ?? null}::text, note),
+      completed    = COALESCE(${patch.completed ?? null}::boolean, completed),
+      my_day       = COALESCE(${patch.myDay ?? null}::boolean, my_day),
+      important    = COALESCE(${patch.important ?? null}::boolean, important),
+      created_at   = COALESCE(${patch.createdAt ?? null}::text, created_at),
+      completed_at = CASE WHEN ${"completedAt" in patch}::boolean
+                       THEN ${patch.completedAt ?? null}::text ELSE completed_at END,
+      due_date     = CASE WHEN ${"dueDate" in patch}::boolean
+                       THEN ${patch.dueDate ?? null}::text ELSE due_date END,
+      steps        = COALESCE(${
+        patch.steps === undefined ? null : JSON.stringify(patch.steps)
+      }::jsonb, steps)
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  const found = (rows as Row[])[0];
+  return found === undefined ? null : toTask(found);
 }
 
-export function writeState(state: AppState): Promise<AppState> {
-  return withLock(async () => {
-    await writeRaw(state);
-    return state;
-  });
+export async function deleteTask(id: string): Promise<boolean> {
+  await init();
+  const rows = await sql()`DELETE FROM tasks WHERE id = ${id} RETURNING id`;
+  return (rows as Row[]).length > 0;
+}
+
+export async function insertList(list: TaskList): Promise<TaskList> {
+  await init();
+  const rows = await sql()`
+    INSERT INTO lists (id, name, icon)
+    VALUES (${list.id}, ${list.name}, ${list.icon})
+    RETURNING *
+  `;
+  return toList((rows as Row[])[0]);
+}
+
+export async function updateList(
+  id: string,
+  patch: Partial<TaskList>,
+): Promise<TaskList | null> {
+  await init();
+  const rows = await sql()`
+    UPDATE lists SET
+      name = COALESCE(${patch.name ?? null}, name),
+      icon = COALESCE(${patch.icon ?? null}, icon)
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  const found = (rows as Row[])[0];
+  return found === undefined ? null : toList(found);
+}
+
+/** ON DELETE CASCADE takes the list's tasks with it, the same as To Do does. */
+export async function deleteList(id: string): Promise<boolean> {
+  await init();
+  const rows = await sql()`DELETE FROM lists WHERE id = ${id} RETURNING id`;
+  return (rows as Row[]).length > 0;
+}
+
+/** Wipe everything and write the given state back. */
+export async function replaceState(state: AppState): Promise<AppState> {
+  await init();
+  const db = sql();
+
+  // Truncating lists cascades into tasks.
+  await db`TRUNCATE lists CASCADE`;
+
+  for (const list of state.lists) {
+    await db`
+      INSERT INTO lists (id, name, icon) VALUES (${list.id}, ${list.name}, ${list.icon})
+    `;
+  }
+  // Oldest first, so the BIGSERIAL order matches the array's newest-first read.
+  for (const task of [...state.tasks].reverse()) {
+    await db`
+      INSERT INTO tasks
+        (id, list_id, title, note, completed, completed_at, created_at, due_date,
+         my_day, important, steps)
+      VALUES
+        (${task.id}, ${task.listId}, ${task.title}, ${task.note}, ${task.completed},
+         ${task.completedAt}, ${task.createdAt}, ${task.dueDate}, ${task.myDay},
+         ${task.important}, ${JSON.stringify(task.steps)}::jsonb)
+    `;
+  }
+  return readState();
 }

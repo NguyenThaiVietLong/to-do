@@ -26,12 +26,12 @@ export async function POST(request: Request) {
       ? (body as Record<string, unknown>).password
       : undefined;
 
-  if (!checkPassword(candidate)) {
+  if (!(await checkPassword(candidate))) {
     return Response.json({ error: "Wrong password." }, { status: 401 });
   }
 
   const jar = await cookies();
-  jar.set(SESSION_COOKIE, createSessionToken(), SESSION_COOKIE_OPTIONS);
+  jar.set(SESSION_COOKIE, await createSessionToken(), SESSION_COOKIE_OPTIONS);
   return Response.json({ ok: true });
 }
 
