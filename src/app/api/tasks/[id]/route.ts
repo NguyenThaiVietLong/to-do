@@ -1,6 +1,7 @@
-import { deleteTask, updateTask } from "@/lib/db";
+import { deleteTask, readTask, spawnNextOccurrence, updateTask } from "@/lib/db";
 import { parseTaskPatch } from "@/lib/validate";
 import { requireSession } from "@/lib/guard";
+import { todayISO } from "@/lib/date";
 
 export async function PATCH(
   request: Request,
@@ -16,10 +17,24 @@ export async function PATCH(
     return Response.json({ error: "Invalid task patch." }, { status: 400 });
   }
 
+  // Read first: spawning the next occurrence needs the repeat rule as it was
+  // before this patch, and whether the task was already complete.
+  const before = await readTask(id);
+  if (before === null) {
+    return Response.json({ error: `No such task: ${id}` }, { status: 404 });
+  }
+
   const updated = await updateTask(id, patch);
   if (updated === null) {
     return Response.json({ error: `No such task: ${id}` }, { status: 404 });
   }
+
+  // Only on the transition into completed, so re-saving a finished task never
+  // spawns a second copy.
+  if (!before.completed && updated.completed && before.repeat !== null) {
+    await spawnNextOccurrence(before, todayISO());
+  }
+
   return Response.json(updated);
 }
 

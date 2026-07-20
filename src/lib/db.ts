@@ -1,7 +1,7 @@
 import { neon } from "@neondatabase/serverless";
-import { addDays, daysBetween, fromISO, mondayIndex } from "./date";
+import { addDays, daysBetween, fromISO, mondayIndex, toISO } from "./date";
 import { LISTS } from "./seed";
-import type { AppState, Recurrence, Roadmap, Step, Task, TaskList } from "./types";
+import type { AppState, Recurrence, Repeat, Roadmap, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Postgres store                                                              */
@@ -73,6 +73,7 @@ async function migrate(): Promise<void> {
   // Added after the table shipped, so it has to be an ALTER rather than part of
   // the CREATE above — an existing database never re-runs that.
   await db`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS my_day_set_on TEXT`;
+  await db`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat JSONB`;
 
   await db`
     CREATE TABLE IF NOT EXISTS recurrences (
@@ -142,6 +143,7 @@ function toTask(r: Row): Task {
     myDay: r.my_day as boolean,
     important: r.important as boolean,
     steps: (r.steps as Step[] | null) ?? [],
+    repeat: (r.repeat as Repeat | null) ?? null,
   };
 }
 
@@ -217,11 +219,12 @@ export async function insertTask(task: Task): Promise<Task> {
   const rows = await sql()`
     INSERT INTO tasks
       (id, list_id, title, note, completed, completed_at, created_at, due_date,
-       my_day, important, steps)
+       my_day, important, steps, repeat)
     VALUES
       (${task.id}, ${task.listId}, ${task.title}, ${task.note}, ${task.completed},
        ${task.completedAt}, ${task.createdAt}, ${task.dueDate}, ${task.myDay},
-       ${task.important}, ${JSON.stringify(task.steps)}::jsonb)
+       ${task.important}, ${JSON.stringify(task.steps)}::jsonb,
+       ${task.repeat === null ? null : JSON.stringify(task.repeat)}::jsonb)
     RETURNING *
   `;
   return toTask((rows as Row[])[0]);
@@ -257,12 +260,88 @@ export async function updateTask(
                        THEN ${patch.dueDate ?? null}::text ELSE due_date END,
       steps        = COALESCE(${
         patch.steps === undefined ? null : JSON.stringify(patch.steps)
-      }::jsonb, steps)
+      }::jsonb, steps),
+      repeat       = CASE WHEN ${"repeat" in patch}::boolean
+                       THEN ${
+                         patch.repeat == null ? null : JSON.stringify(patch.repeat)
+                       }::jsonb ELSE repeat END
     WHERE id = ${id}
     RETURNING *
   `;
   const found = (rows as Row[])[0];
   return found === undefined ? null : toTask(found);
+}
+
+export async function readTask(id: string): Promise<Task | null> {
+  await init();
+  const rows = await sql()`SELECT * FROM tasks WHERE id = ${id}`;
+  const found = (rows as Row[])[0];
+  return found === undefined ? null : toTask(found);
+}
+
+/** The first date strictly after `from` that the rule allows. */
+export function nextOccurrence(repeat: Repeat, from: string): string {
+  if (repeat.kind === "daily") return addDays(from, 1);
+  if (repeat.kind === "monthly") {
+    const d = fromISO(from);
+    const day = d.getDate();
+    const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    // Clamp: the 31st of a 30-day month lands on the last day, not the 1st of
+    // the month after.
+    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(day, lastDay));
+    return toISO(next);
+  }
+  if (repeat.days.length === 0) return addDays(from, 1);
+  for (let i = 1; i <= 7; i++) {
+    const candidate = addDays(from, i);
+    if (repeat.days.includes(mondayIndex(fromISO(candidate)))) return candidate;
+  }
+  return addDays(from, 7);
+}
+
+/**
+ * Tick a repeating task and the next one appears — the To Do behaviour.
+ *
+ * The rule moves to the new occurrence and is cleared from the finished task,
+ * so un-ticking and re-ticking the same task can't spawn a second copy.
+ */
+export async function spawnNextOccurrence(
+  task: Task,
+  today: string,
+): Promise<Task | null> {
+  if (task.repeat === null) return null;
+  await init();
+
+  const base = task.dueDate ?? today;
+  const next: Task = {
+    ...task,
+    id: `${task.id}~${nextOccurrence(task.repeat, base)}`,
+    completed: false,
+    completedAt: null,
+    createdAt: today,
+    dueDate: nextOccurrence(task.repeat, base),
+    myDay: false,
+    // Steps come along, but unticked — it is the same checklist done again.
+    steps: task.steps.map((s) => ({ ...s, done: false })),
+  };
+
+  const rows = await sql()`
+    INSERT INTO tasks
+      (id, list_id, title, note, completed, completed_at, created_at, due_date,
+       my_day, important, steps, repeat)
+    VALUES
+      (${next.id}, ${next.listId}, ${next.title}, ${next.note}, FALSE, NULL,
+       ${next.createdAt}, ${next.dueDate}, FALSE, ${next.important},
+       ${JSON.stringify(next.steps)}::jsonb, ${JSON.stringify(task.repeat)}::jsonb)
+    ON CONFLICT (id) DO NOTHING
+    RETURNING *
+  `;
+  const created = (rows as Row[])[0];
+  if (created === undefined) return null;
+
+  await sql()`UPDATE tasks SET repeat = NULL WHERE id = ${task.id}`;
+  return toTask(created);
 }
 
 export async function deleteTask(id: string): Promise<boolean> {
@@ -489,11 +568,12 @@ export async function replaceState(state: AppState): Promise<AppState> {
     await db`
       INSERT INTO tasks
         (id, list_id, title, note, completed, completed_at, created_at, due_date,
-         my_day, important, steps)
+         my_day, important, steps, repeat)
       VALUES
         (${task.id}, ${task.listId}, ${task.title}, ${task.note}, ${task.completed},
          ${task.completedAt}, ${task.createdAt}, ${task.dueDate}, ${task.myDay},
-         ${task.important}, ${JSON.stringify(task.steps)}::jsonb)
+         ${task.important}, ${JSON.stringify(task.steps)}::jsonb,
+         ${task.repeat === null ? null : JSON.stringify(task.repeat)}::jsonb)
     `;
   }
   for (const r of state.roadmaps) {

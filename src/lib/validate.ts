@@ -1,5 +1,5 @@
 import { todayISO } from "./date";
-import type { Recurrence, Roadmap, Step, Task, TaskList } from "./types";
+import type { Recurrence, Repeat, Roadmap, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Request body validation                                                     */
@@ -35,6 +35,24 @@ function asRecord(body: unknown): Record<string, unknown> | null {
   return typeof body === "object" && body !== null && !Array.isArray(body)
     ? (body as Record<string, unknown>)
     : null;
+}
+
+/** `undefined` means invalid; `null` means "clear the repeat". */
+function parseRepeat(v: unknown): Repeat | null | undefined {
+  if (v === null) return null;
+  if (typeof v !== "object" || Array.isArray(v)) return undefined;
+  const r = v as Record<string, unknown>;
+  if (r.kind === "daily" || r.kind === "monthly") return { kind: r.kind };
+  if (r.kind === "weekdays") {
+    if (!Array.isArray(r.days) || r.days.length === 0) return undefined;
+    const days = new Set<number>();
+    for (const d of r.days) {
+      if (typeof d !== "number" || !Number.isInteger(d) || d < 0 || d > 6) return undefined;
+      days.add(d);
+    }
+    return { kind: "weekdays", days: [...days].sort((a, b) => a - b) };
+  }
+  return undefined;
 }
 
 /** Fields a client may change on a task. Returns null if any is malformed. */
@@ -80,6 +98,11 @@ export function parseTaskPatch(body: unknown): Partial<Task> | null {
     if (steps === null) return null;
     patch.steps = steps;
   }
+  if ("repeat" in b) {
+    const rep = parseRepeat(b.repeat);
+    if (rep === undefined) return null;
+    patch.repeat = rep;
+  }
   return patch;
 }
 
@@ -114,6 +137,7 @@ export function parseNewTask(body: unknown): Task | null {
     myDay: false,
     important: false,
     steps: [],
+    repeat: null,
     ...patch,
     // After the spread: a new task always gets a real, trimmed title, even
     // though PATCH allows the field to be blank while it is being edited.

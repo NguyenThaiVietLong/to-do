@@ -130,6 +130,7 @@ const actions = {
       myDay: false,
       important: false,
       steps: [],
+      repeat: null,
       ...opts,
     };
     setState({ ...cache, tasks: [task, ...cache.tasks] });

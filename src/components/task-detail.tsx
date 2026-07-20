@@ -1,12 +1,59 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CalendarDays, Plus, Star, Sun, Trash2, X } from "lucide-react";
+import { CalendarDays, Plus, Repeat as RepeatIcon, Star, Sun, Trash2, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { formatLong } from "@/lib/date";
+import { addDays, formatLong, fromISO, mondayIndex, todayISO, toISO } from "@/lib/date";
 import { useStore } from "@/lib/store";
-import type { Task } from "@/lib/types";
+import type { Repeat, Task } from "@/lib/types";
+
+/**
+ * The select offers "Weekly" as a shorthand for "the weekday this task already
+ * falls on", so the common case needs no day picker. It resolves against the
+ * due date at the moment it is chosen.
+ */
+function repeatValue(r: Repeat | null): string {
+  if (r === null) return "none";
+  if (r.kind === "daily") return "daily";
+  if (r.kind === "monthly") return "monthly";
+  return r.days.length === 5 && r.days.every((d) => d < 5) ? "weekdays" : "weekly";
+}
+
+function repeatFrom(value: string, dueDate: string | null, today: string): Repeat | null {
+  switch (value) {
+    case "daily":
+      return { kind: "daily" };
+    case "weekdays":
+      return { kind: "weekdays", days: [0, 1, 2, 3, 4] };
+    case "weekly":
+      return { kind: "weekdays", days: [mondayIndex(fromISO(dueDate ?? today))] };
+    case "monthly":
+      return { kind: "monthly" };
+    default:
+      return null;
+  }
+}
+
+/** Mirrors the server's rule so the pane can say when the next one lands. */
+function nextDue(task: Task, today: string): string {
+  const from = task.dueDate ?? today;
+  const r = task.repeat;
+  if (r === null) return from;
+  if (r.kind === "daily") return addDays(from, 1);
+  if (r.kind === "monthly") {
+    const d = fromISO(from);
+    const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(d.getDate(), lastDay));
+    return toISO(next);
+  }
+  for (let i = 1; i <= 7; i++) {
+    const candidate = addDays(from, i);
+    if (r.days.includes(mondayIndex(fromISO(candidate)))) return candidate;
+  }
+  return addDays(from, 7);
+}
 
 export function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
   const { updateTask, deleteTask, toggleTask, addStep, toggleStep, deleteStep } =
@@ -144,7 +191,40 @@ export function TaskDetail({ task, onClose }: { task: Task; onClose: () => void 
               className="bg-transparent text-sm text-muted-foreground outline-none"
             />
           </label>
+
+          <label className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-sm hover:bg-secondary/60">
+            <RepeatIcon
+              className={cn(
+                "size-4 shrink-0",
+                task.repeat ? "text-primary" : "text-muted-foreground",
+              )}
+            />
+            <span className="flex-1">{task.repeat ? "Repeats" : "Repeat"}</span>
+            <select
+              value={repeatValue(task.repeat)}
+              onChange={(e) =>
+                updateTask(task.id, {
+                  repeat: repeatFrom(e.target.value, task.dueDate, todayISO()),
+                })
+              }
+              aria-label="Repeat"
+              className="bg-transparent text-sm text-muted-foreground outline-none"
+            >
+              <option value="none">Never</option>
+              <option value="daily">Daily</option>
+              <option value="weekdays">Weekdays (Mon–Fri)</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </label>
         </div>
+
+        {task.repeat !== null && (
+          <p className="mx-3 -mt-1 text-xs text-muted-foreground">
+            Ticking this off creates the next one
+            {task.dueDate !== null && ` — due ${formatLong(nextDue(task, todayISO()))}`}.
+          </p>
+        )}
 
         {/* Note */}
         <div className="m-3 rounded-md border bg-card shadow-xs">

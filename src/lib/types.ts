@@ -4,9 +4,21 @@ export interface Step {
   done: boolean;
 }
 
+/**
+ * How a task repeats. Completion-driven, the way To Do itself works: ticking a
+ * repeating task spawns the next occurrence rather than a scheduler filling the
+ * calendar in advance. Skip a day and the chain waits for you.
+ */
+export type Repeat =
+  | { kind: "daily" }
+  /** Monday-first weekday indices (0 = Mon … 6 = Sun). */
+  | { kind: "weekdays"; days: number[] }
+  | { kind: "monthly" };
+
 export interface Task {
   id: string;
   listId: string;
+  repeat: Repeat | null;
   title: string;
   note: string;
   completed: boolean;

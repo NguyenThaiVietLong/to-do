@@ -92,6 +92,7 @@ export function buildSeed(): AppState {
         dueDate: hasDue ? addDays(today, Math.floor(rand() * 10) - 2) : null,
         myDay: rand() > 0.62,
         important: rand() > 0.75,
+        repeat: null,
         steps: (STEPS[title] ?? []).map((s, i) => ({
           id: `${id()}s${i}`,
           title: s,
@@ -134,6 +135,7 @@ export function buildSeed(): AppState {
         dueDate: rand() > 0.5 ? date : null,
         myDay: false,
         important: rand() > 0.88,
+        repeat: null,
         steps: [],
       });
     }

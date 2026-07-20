@@ -141,7 +141,20 @@ Pace assumes an even split of the days between start and deadline. Past the
 deadline the expectation stops at the full target rather than climbing beyond
 it, so "behind by N" stays a real number instead of growing forever.
 
-## Repeat schedules
+## Repeat
+
+Two mechanisms, on purpose, because they answer different questions.
+
+**Per task**, in the detail pane — daily, weekdays, weekly, monthly. This is
+completion-driven, the way To Do itself works: ticking a repeating task spawns
+the next occurrence and the rule moves with it. Skip a day and the chain waits
+for you rather than piling up. The rule is cleared from the finished task, so
+un-ticking and re-ticking cannot spawn a second copy.
+
+**Per list**, on the roadmap page — for a plan that has to happen whether or
+not you ticked yesterday. These generate ahead.
+
+## Repeat schedules (per list)
 
 A list can carry repeat rules — "every day", "Mon Wed Fri" — each with its own
 date range, so a schedule that changes partway through is two rules rather than
