@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import { todayISO } from "./date";
-import type { AppState, Step, Task, TaskList } from "./types";
+import type { AppState, Roadmap, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* External store, backed by the API                                           */
@@ -18,7 +18,7 @@ import type { AppState, Step, Task, TaskList } from "./types";
 
 const LEGACY_STORAGE_KEY = "mstodo.state.v1";
 
-const EMPTY: AppState = { lists: [], tasks: [] };
+const EMPTY: AppState = { lists: [], tasks: [], roadmaps: [] };
 
 let cache: AppState = EMPTY;
 let ready = false;
@@ -188,8 +188,36 @@ const actions = {
     setState({
       lists: cache.lists.filter((l) => l.id !== id),
       tasks: cache.tasks.filter((t) => t.listId !== id),
+      // Mirrors ON DELETE CASCADE, so the optimistic view matches the server.
+      roadmaps: cache.roadmaps.filter((r) => r.listId !== id),
     });
     send(api(`/lists/${id}`, { method: "DELETE" }));
+  },
+
+  addRoadmap(listId: string, target: number, deadline: string): string {
+    const roadmap: Roadmap = {
+      id: makeId("r"),
+      listId,
+      target,
+      deadline,
+      startedAt: todayISO(),
+    };
+    setState({ ...cache, roadmaps: [...cache.roadmaps, roadmap] });
+    send(api("/roadmaps", { method: "POST", body: JSON.stringify(roadmap) }));
+    return roadmap.id;
+  },
+
+  updateRoadmap(id: string, patch: Partial<Pick<Roadmap, "target" | "deadline">>) {
+    setState({
+      ...cache,
+      roadmaps: cache.roadmaps.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+    });
+    send(api(`/roadmaps/${id}`, { method: "PATCH", body: JSON.stringify(patch) }));
+  },
+
+  deleteRoadmap(id: string) {
+    setState({ ...cache, roadmaps: cache.roadmaps.filter((r) => r.id !== id) });
+    send(api(`/roadmaps/${id}`, { method: "DELETE" }));
   },
 
   /** Back to the default lists with no tasks. */

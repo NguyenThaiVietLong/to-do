@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { LISTS } from "./seed";
-import type { AppState, Step, Task, TaskList } from "./types";
+import type { AppState, Roadmap, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Postgres store                                                              */
@@ -30,7 +30,7 @@ function sql(): Sql {
 
 /** The default lists a fresh database starts with. */
 export function emptyState(): AppState {
-  return { lists: LISTS.map((l) => ({ ...l })), tasks: [] };
+  return { lists: LISTS.map((l) => ({ ...l })), tasks: [], roadmaps: [] };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -69,6 +69,17 @@ async function migrate(): Promise<void> {
     )
   `;
   await db`CREATE INDEX IF NOT EXISTS tasks_list_id_idx ON tasks (list_id)`;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS roadmaps (
+      id         TEXT PRIMARY KEY,
+      list_id    TEXT NOT NULL UNIQUE REFERENCES lists(id) ON DELETE CASCADE,
+      target     INTEGER NOT NULL CHECK (target >= 1),
+      deadline   TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      seq        BIGSERIAL
+    )
+  `;
 
   // Seed the default lists once, on a genuinely empty database. ON CONFLICT
   // makes this safe to race — two cold starts at once can't duplicate them.
@@ -117,6 +128,17 @@ function toTask(r: Row): Task {
   };
 }
 
+function toRoadmap(r: Row): Roadmap {
+  return {
+    id: r.id as string,
+    listId: r.list_id as string,
+    // INTEGER comes back as a number, but be explicit rather than trust it.
+    target: Number(r.target),
+    deadline: r.deadline as string,
+    startedAt: r.started_at as string,
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /* Reads                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -125,13 +147,15 @@ export async function readState(): Promise<AppState> {
   await init();
   const db = sql();
   // Newest task first, matching the old in-memory prepend.
-  const [lists, tasks] = await Promise.all([
+  const [lists, tasks, roadmaps] = await Promise.all([
     db`SELECT * FROM lists ORDER BY seq ASC`,
     db`SELECT * FROM tasks ORDER BY seq DESC`,
+    db`SELECT * FROM roadmaps ORDER BY seq ASC`,
   ]);
   return {
     lists: (lists as Row[]).map(toList),
     tasks: (tasks as Row[]).map(toTask),
+    roadmaps: (roadmaps as Row[]).map(toRoadmap),
   };
 }
 
@@ -249,6 +273,48 @@ export async function deleteList(id: string): Promise<boolean> {
   return (rows as Row[]).length > 0;
 }
 
+export async function readRoadmaps(): Promise<Roadmap[]> {
+  await init();
+  const rows = await sql()`SELECT * FROM roadmaps ORDER BY seq ASC`;
+  return (rows as Row[]).map(toRoadmap);
+}
+
+export async function insertRoadmap(r: Roadmap): Promise<Roadmap | null> {
+  await init();
+  // One roadmap per list, so a second one on the same list is a conflict the
+  // caller reports rather than a crash.
+  const rows = await sql()`
+    INSERT INTO roadmaps (id, list_id, target, deadline, started_at)
+    VALUES (${r.id}, ${r.listId}, ${r.target}, ${r.deadline}, ${r.startedAt})
+    ON CONFLICT (list_id) DO NOTHING
+    RETURNING *
+  `;
+  const found = (rows as Row[])[0];
+  return found === undefined ? null : toRoadmap(found);
+}
+
+export async function updateRoadmap(
+  id: string,
+  patch: Partial<Roadmap>,
+): Promise<Roadmap | null> {
+  await init();
+  const rows = await sql()`
+    UPDATE roadmaps SET
+      target   = COALESCE(${patch.target ?? null}::integer, target),
+      deadline = COALESCE(${patch.deadline ?? null}::text, deadline)
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  const found = (rows as Row[])[0];
+  return found === undefined ? null : toRoadmap(found);
+}
+
+export async function deleteRoadmap(id: string): Promise<boolean> {
+  await init();
+  const rows = await sql()`DELETE FROM roadmaps WHERE id = ${id} RETURNING id`;
+  return (rows as Row[]).length > 0;
+}
+
 /** Wipe everything and write the given state back. */
 export async function replaceState(state: AppState): Promise<AppState> {
   await init();
@@ -272,6 +338,12 @@ export async function replaceState(state: AppState): Promise<AppState> {
         (${task.id}, ${task.listId}, ${task.title}, ${task.note}, ${task.completed},
          ${task.completedAt}, ${task.createdAt}, ${task.dueDate}, ${task.myDay},
          ${task.important}, ${JSON.stringify(task.steps)}::jsonb)
+    `;
+  }
+  for (const r of state.roadmaps) {
+    await db`
+      INSERT INTO roadmaps (id, list_id, target, deadline, started_at)
+      VALUES (${r.id}, ${r.listId}, ${r.target}, ${r.deadline}, ${r.startedAt})
     `;
   }
   return readState();
