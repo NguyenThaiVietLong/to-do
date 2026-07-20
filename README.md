@@ -1,21 +1,22 @@
 # To Do
 
 A Microsoft To Do clone with a productivity dashboard. Next.js 16, React 19,
-Tailwind v4, shadcn/ui. Data lives in a JSON file on the server, behind a single
-shared password.
+Tailwind v4, shadcn/ui. Data lives in Postgres, behind a single shared password.
 
 ## Run it
 
 ```bash
+cp .env.example .env.local     # then fill in DATABASE_URL
 npm install
-npm run dev      # http://localhost:3000
+npm run dev                    # http://localhost:3000
 ```
 
-In development, with no `APP_PASSWORD` set, the app runs open — no login screen.
+`DATABASE_URL` is required, in development too — there is no local fallback.
+[Neon](https://neon.com)'s free plan is enough and needs no card. The schema
+creates itself on the first request; there is no migration step to run.
 
-Note that `npm start` does **not** work here: `output: "standalone"` means the
-production server is `node .next/standalone/server.js`, and that folder needs
-`.next/static` and `public/` copied in beside it. The Dockerfile does both.
+Leave `APP_PASSWORD` unset in development and the app runs open, with no login
+screen.
 
 ## What is in it
 
@@ -41,7 +42,7 @@ production server is `node .next/standalone/server.js`, and that folder needs
 | [src/lib/types.ts](src/lib/types.ts) | `Task`, `TaskList`, `Step` |
 | [src/lib/date.ts](src/lib/date.ts) | Local-calendar `YYYY-MM-DD` helpers |
 | [src/lib/store.tsx](src/lib/store.tsx) | Client state, optimistic, backed by the API |
-| [src/lib/db.ts](src/lib/db.ts) | The JSON file store |
+| [src/lib/db.ts](src/lib/db.ts) | Postgres schema and queries |
 | [src/lib/validate.ts](src/lib/validate.ts) | Request body validation |
 | [src/lib/auth.ts](src/lib/auth.ts) | Password check and session signing |
 | [src/proxy.ts](src/proxy.ts) | Gates every route (was `middleware.ts` before Next 16) |
@@ -70,10 +71,19 @@ must always be reachable as text.
 
 ## Data
 
-Everything is one JSON file, `db.json`, written under `DATA_DIR` (default
-`./data`, gitignored). Writes go through a promise queue so concurrent requests
-can't drop each other's changes, and use write-then-rename so a crash mid-write
-leaves the previous file intact.
+Two tables, `lists` and `tasks`, created on first use by
+[db.ts](src/lib/db.ts). Deleting a list cascades to its tasks in the schema.
+
+Two decisions worth keeping if you touch the schema:
+
+- **Dates are `TEXT`, not `DATE`.** Every date in this app is a local-calendar
+  `YYYY-MM-DD` string (see [date.ts](src/lib/date.ts)). Letting the driver hand
+  back a `Date` would reintroduce exactly the UTC slide that convention exists
+  to avoid.
+- **Every bound parameter in the `UPDATE` is cast explicitly.** Values arrive
+  untyped, and a bare `NULL` inside `COALESCE`/`CASE` stops Postgres inferring
+  the type. The nullable columns also need a separate "is this key present"
+  flag, because for them `null` is a value the caller may be setting on purpose.
 
 **Reset data** on the dashboard empties the store — the default lists, no tasks.
 To get the year of sample history back, which is the only thing that makes the
@@ -112,26 +122,25 @@ Two behaviours worth knowing before you deploy:
   unauthenticated read/write API on the public internet.
 - **The session cookie is `Secure` in production, so the app must be served over
   HTTPS.** Behind plain HTTP the browser drops the cookie and login appears to
-  do nothing. Railway and Render both terminate TLS for you.
+  do nothing. Vercel terminates TLS for you.
 
 ## Deploy
 
-The store writes to disk, so this needs a host with a **persistent volume**.
-It will not work on Vercel or any read-only/ephemeral filesystem — the to-do
-list would vanish on every redeploy.
+Nothing is written to disk, so any Node host works. Vercel plus Neon needs no
+card on either side.
 
-Build with the included `Dockerfile`, then set:
+Import the repo on Vercel and set two environment variables:
 
 | Variable | Value |
 |---|---|
-| `APP_PASSWORD` | your password — required, or the app returns 503 |
-| `DATA_DIR` | the volume mount path (the image defaults to `/data`) |
+| `DATABASE_URL` | the Neon connection string |
+| `APP_PASSWORD` | your password — required, or every route returns 503 |
 
-**Railway** — New Project → Deploy from GitHub repo. It detects the Dockerfile.
-Add a Volume mounted at `/data`, then set `APP_PASSWORD` under Variables.
+The schema creates itself on the first request, so there is no migration step
+in the deploy.
 
-**Render** — New → Web Service → Docker. Add a Disk mounted at `/data`, then set
-`APP_PASSWORD` under Environment.
+### Known rough edge
 
-Mount the volume before the first deploy that stores anything real: attaching
-one later starts from an empty directory.
+`POST /api/reset` with `{"seed":true}` inserts its ~490 rows one statement at a
+time, each a separate round trip. It works, but it is slow enough to notice.
+Batch it if you find yourself reseeding often.
