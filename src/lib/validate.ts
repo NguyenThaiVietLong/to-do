@@ -1,5 +1,5 @@
 import { todayISO } from "./date";
-import type { Step, Task, TaskList } from "./types";
+import type { Roadmap, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Request body validation                                                     */
@@ -130,6 +130,54 @@ export function parseNewList(body: unknown): TaskList | null {
     name: b.name.trim(),
     icon: typeof b.icon === "string" && b.icon ? b.icon : "📋",
   };
+}
+
+function parseTarget(v: unknown): number | null {
+  // Reject 0 and negatives outright: they are the denominator of the
+  // percentage, so anything below 1 divides by zero or goes negative.
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : null;
+}
+
+export function parseNewRoadmap(body: unknown, today: string): Roadmap | null {
+  const b = asRecord(body);
+  if (b === null) return null;
+  if (typeof b.listId !== "string" || !b.listId) return null;
+
+  const target = parseTarget(b.target);
+  if (target === null) return null;
+
+  if (typeof b.deadline !== "string" || !ISO_DATE.test(b.deadline)) return null;
+  // startedAt is always today: progress and pace both begin when the roadmap is
+  // switched on, never from the list's older history.
+  const startedAt = typeof b.startedAt === "string" && ISO_DATE.test(b.startedAt)
+    ? b.startedAt
+    : today;
+  // A deadline on or before the start makes every pace figure meaningless.
+  if (b.deadline <= startedAt) return null;
+
+  return {
+    id: typeof b.id === "string" && b.id ? b.id : makeId("r"),
+    listId: b.listId,
+    target,
+    deadline: b.deadline,
+    startedAt,
+  };
+}
+
+export function parseRoadmapPatch(body: unknown): Partial<Roadmap> | null {
+  const b = asRecord(body);
+  if (b === null) return null;
+  const patch: Partial<Roadmap> = {};
+  if ("target" in b) {
+    const target = parseTarget(b.target);
+    if (target === null) return null;
+    patch.target = target;
+  }
+  if ("deadline" in b) {
+    if (typeof b.deadline !== "string" || !ISO_DATE.test(b.deadline)) return null;
+    patch.deadline = b.deadline;
+  }
+  return patch;
 }
 
 export function parseListPatch(body: unknown): Partial<TaskList> | null {

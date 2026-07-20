@@ -29,6 +29,15 @@ screen.
 - Search across every list
 - Light and dark theme, following the OS until you pick one
 
+**Roadmap** (`/roadmap`)
+
+- Attach a target to a list: how many completed tasks count as done, by when
+- Two headline figures, the same size — how far the target has come, and what
+  today added to it
+- Pace against an even split of the deadline: ahead or behind by N tasks, and
+  how many a day it now takes to finish on time
+- One roadmap per list; deleting the list takes its roadmap with it
+
 **Dashboard** (`/dashboard`)
 
 - Current streak — the hero figure, with longest streak, active days, total done
@@ -39,7 +48,7 @@ screen.
 
 | Path | What it does |
 |---|---|
-| [src/lib/types.ts](src/lib/types.ts) | `Task`, `TaskList`, `Step` |
+| [src/lib/types.ts](src/lib/types.ts) | `Task`, `TaskList`, `Step`, `Roadmap` |
 | [src/lib/date.ts](src/lib/date.ts) | Local-calendar `YYYY-MM-DD` helpers |
 | [src/lib/store.tsx](src/lib/store.tsx) | Client state, optimistic, backed by the API |
 | [src/lib/db.ts](src/lib/db.ts) | Postgres schema and queries |
@@ -48,7 +57,7 @@ screen.
 | [src/proxy.ts](src/proxy.ts) | Gates every route (was `middleware.ts` before Next 16) |
 | [src/app/api/](src/app/api/) | Route handlers |
 | [src/lib/seed.ts](src/lib/seed.ts) | First-run sample data (a year of history) |
-| [src/lib/selectors.ts](src/lib/selectors.ts) | View filters, streaks, heatmap grid |
+| [src/lib/selectors.ts](src/lib/selectors.ts) | View filters, streaks, heatmap grid, roadmap progress |
 | [src/components/charts/](src/components/charts/) | The two charts and their table twins |
 
 ## Notes on the charts
@@ -71,8 +80,8 @@ must always be reachable as text.
 
 ## Data
 
-Two tables, `lists` and `tasks`, created on first use by
-[db.ts](src/lib/db.ts). Deleting a list cascades to its tasks in the schema.
+Three tables — `lists`, `tasks` and `roadmaps` — created on first use by
+[db.ts](src/lib/db.ts). Deleting a list cascades to its tasks and its roadmap.
 
 Two decisions worth keeping if you touch the schema:
 
@@ -103,8 +112,32 @@ curl -X POST localhost:3000/api/reset -H 'Content-Type: application/json' \
 | `PATCH DELETE /api/tasks/[id]` | Update, delete |
 | `GET POST /api/lists` | List, create |
 | `PATCH DELETE /api/lists/[id]` | Update, delete (takes its tasks with it) |
+| `GET POST /api/roadmaps` | List, create |
+| `PATCH DELETE /api/roadmaps/[id]` | Update target/deadline, delete |
 | `POST /api/reset` | Empty, or `{"seed":true}` |
 | `POST DELETE /api/login` | Sign in, sign out |
+
+## Roadmaps
+
+A roadmap is a target bolted onto an existing list: a fixed number of completed
+tasks, and a deadline. Three decisions shape how it behaves, and each was a
+choice between two defensible options:
+
+- **The denominator is a number you set, not the size of the list.** If the
+  percentage were `done / tasks in list`, then writing down a new task would
+  push your own progress backwards — the app would punish you for planning in
+  detail.
+- **Progress starts the day you switch it on.** Tasks completed before that do
+  not count. A list with months of history therefore opens at 0% on day zero,
+  rather than immediately declaring you far behind on a race you just entered.
+- **Reaching the target beats missing the deadline.** A finished roadmap is
+  never marked overdue, and the bar stops at 100% while the count keeps showing
+  the real figure (`112/100`), so extra work stays visible instead of being
+  flattened away.
+
+Pace assumes an even split of the days between start and deadline. Past the
+deadline the expectation stops at the full target rather than climbing beyond
+it, so "behind by N" stays a real number instead of growing forever.
 
 ## Auth
 

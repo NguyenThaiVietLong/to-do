@@ -35,7 +35,21 @@ export type SmartListId =
 
 export type ViewId = SmartListId | string;
 
+export interface Roadmap {
+  id: string;
+  /** The list whose completions count towards this target. One per list. */
+  listId: string;
+  /** How many completed tasks count as done. Fixed, so adding a task to the
+   *  list never drags the percentage backwards. */
+  target: number;
+  deadline: string;
+  /** Set when the roadmap is switched on. Progress and pace both start here,
+   *  so a list with months of history still opens at 0% and day zero. */
+  startedAt: string;
+}
+
 export interface AppState {
   lists: TaskList[];
   tasks: Task[];
+  roadmaps: Roadmap[];
 }

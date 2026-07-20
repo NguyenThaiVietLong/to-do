@@ -1,5 +1,5 @@
 import { addDays, daysBetween, fromISO, isOverdue, mondayIndex, todayISO, toISO } from "./date";
-import type { AppState, Task, TaskList, ViewId } from "./types";
+import type { AppState, Roadmap, Task, TaskList, ViewId } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Views                                                                       */
@@ -206,4 +206,86 @@ export function heatGrid(
   }
 
   return { weeks: grid, monthLabels, max, weekCount: weeks };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Roadmaps                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface RoadmapProgress {
+  roadmap: Roadmap;
+  listName: string;
+  listIcon: string;
+  /** Completions counted towards the target, i.e. on or after startedAt. */
+  done: number;
+  doneToday: number;
+  target: number;
+  /** Capped at 100 for the bar; `done` still shows the real count above it. */
+  percent: number;
+  percentToday: number;
+  daysTotal: number;
+  daysElapsed: number;
+  daysLeft: number;
+  /** Where a perfectly even pace would have you by now. */
+  expected: number;
+  /** done − expected. Positive is ahead. */
+  delta: number;
+  /** Completions per day needed to still finish on time. */
+  neededPerDay: number;
+  overdue: boolean;
+  complete: boolean;
+}
+
+/**
+ * Progress against one roadmap.
+ *
+ * Everything is measured from `startedAt`, never from the list's own history:
+ * switching a roadmap on is meant to start at 0% and day zero, so a list that
+ * has been going for months doesn't open already declared hopelessly behind.
+ */
+export function roadmapProgress(
+  roadmap: Roadmap,
+  state: AppState,
+  today = todayISO(),
+): RoadmapProgress {
+  const list = state.lists.find((l) => l.id === roadmap.listId);
+
+  const counted = state.tasks.filter(
+    (t) =>
+      t.listId === roadmap.listId &&
+      t.completed &&
+      t.completedAt !== null &&
+      daysBetween(roadmap.startedAt, t.completedAt) >= 0,
+  );
+  const done = counted.length;
+  const doneToday = counted.filter((t) => t.completedAt === today).length;
+
+  // At least one day, so a same-day deadline can't divide by zero.
+  const daysTotal = Math.max(1, daysBetween(roadmap.startedAt, roadmap.deadline));
+  const daysElapsed = Math.max(0, daysBetween(roadmap.startedAt, today));
+  const daysLeft = daysBetween(today, roadmap.deadline);
+
+  // Pace is only meaningful up to the deadline; past it, expected is the whole
+  // target rather than something that keeps climbing past 100%.
+  const expected = roadmap.target * Math.min(1, daysElapsed / daysTotal);
+  const remaining = Math.max(0, roadmap.target - done);
+
+  return {
+    roadmap,
+    listName: list?.name ?? "Unknown list",
+    listIcon: list?.icon ?? "📋",
+    done,
+    doneToday,
+    target: roadmap.target,
+    percent: Math.min(100, (done / roadmap.target) * 100),
+    percentToday: (doneToday / roadmap.target) * 100,
+    daysTotal,
+    daysElapsed,
+    daysLeft,
+    expected,
+    delta: done - expected,
+    neededPerDay: daysLeft > 0 ? remaining / daysLeft : remaining,
+    overdue: daysLeft < 0 && done < roadmap.target,
+    complete: done >= roadmap.target,
+  };
 }

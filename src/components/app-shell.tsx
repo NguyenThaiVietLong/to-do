@@ -10,6 +10,7 @@ import {
   Plus,
   Search,
   Sun,
+  Target,
   Trash2,
   X,
 } from "lucide-react";
@@ -230,8 +231,21 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         )}
       </nav>
 
-      {/* Footer: dashboard + theme */}
+      {/* Footer: roadmap + dashboard + theme */}
       <div className="flex items-center gap-1 border-t border-sidebar-border p-2">
+        <Link
+          href="/roadmap"
+          onClick={onClose}
+          className={cn(
+            "flex flex-1 items-center gap-3 rounded-md px-2 py-2 text-sm font-medium transition-colors",
+            pathname === "/roadmap"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
+          )}
+        >
+          <Target className="size-4" />
+          Roadmap
+        </Link>
         <Link
           href="/dashboard"
           onClick={onClose}
