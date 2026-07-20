@@ -1,0 +1,212 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ---------------------------------------------------------------------------
+   Light theme. Neutrals lean warm-gray like the Microsoft To Do surface.
+   --------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
+
+  --background: #faf9f8;
+  --foreground: #0b0b0b;
+  --card: #ffffff;
+  --card-foreground: #0b0b0b;
+  --popover: #ffffff;
+  --popover-foreground: #0b0b0b;
+
+  /* Brand accent — the same blue the charts use, so the app reads as one system. */
+  --primary: #2a78d6;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f0efec;
+  --secondary-foreground: #0b0b0b;
+  --muted: #f0efec;
+  --muted-foreground: #6b6a65;
+  --accent: #eaf2fc;
+  --accent-foreground: #1c5cab;
+  --destructive: #d03b3b;
+
+  --border: #e1e0d9;
+  --input: #d8d7d0;
+  --ring: #2a78d6;
+  --radius: 0.5rem;
+
+  --sidebar: #f3f2f1;
+  --sidebar-foreground: #0b0b0b;
+  --sidebar-primary: #2a78d6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e5e4e1;
+  --sidebar-accent-foreground: #0b0b0b;
+  --sidebar-border: #e1e0d9;
+  --sidebar-ring: #2a78d6;
+
+  /* --- Chart tokens -------------------------------------------------------
+     Validated with dataviz/scripts/validate_palette.js against surface #ffffff.
+     Bars are NOMINAL categories (list names have no natural order), so every
+     bar wears the SAME slot-1 hue — never a value-ramp. 4.42:1 vs the card. */
+  --chart-surface: #ffffff;
+  --chart-bar: #2a78d6;
+  --chart-bar-hover: #1c5cab;
+  --chart-grid: #e1e0d9;
+  --chart-axis: #c3c2b7;
+  --chart-ink: #0b0b0b;
+  --chart-ink-secondary: #52514e;
+  --chart-ink-muted: #6b6a65;
+
+  /* Heatmap = SEQUENTIAL magnitude: one hue, light -> dark.
+     Levels 1-4 each encode a real nonzero count, so the lowest data step
+     clears the 2:1 ramp floor (#86b6ef = 2.11:1). Level 0 is absence, not
+     magnitude, so it is a neutral empty cell rather than a ramp step. */
+  --heat-0: #eceae6;
+  --heat-1: #86b6ef;
+  --heat-2: #5598e7;
+  --heat-3: #2a78d6;
+  --heat-4: #184f95;
+
+  --success: #006300;
+}
+
+/* ---------------------------------------------------------------------------
+   Dark theme. Selected, not flipped — each step re-chosen for the dark surface
+   and re-validated against #1f1f1f.
+   --------------------------------------------------------------------------- */
+.dark {
+  color-scheme: dark;
+
+  --background: #141414;
+  --foreground: #ffffff;
+  --card: #1f1f1f;
+  --card-foreground: #ffffff;
+  --popover: #1f1f1f;
+  --popover-foreground: #ffffff;
+
+  --primary: #3987e5;
+  --primary-foreground: #08182b;
+
+  --secondary: #2c2c2a;
+  --secondary-foreground: #ffffff;
+  --muted: #2c2c2a;
+  --muted-foreground: #949389;
+  --accent: #1d2c3f;
+  --accent-foreground: #9ec5f4;
+  --destructive: #e66767;
+
+  --border: #2c2c2a;
+  --input: #3a3a37;
+  --ring: #3987e5;
+
+  --sidebar: #1a1a19;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #3987e5;
+  --sidebar-primary-foreground: #08182b;
+  --sidebar-accent: #2c2c2a;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2c2c2a;
+  --sidebar-ring: #3987e5;
+
+  --chart-surface: #1f1f1f;
+  --chart-bar: #3987e5;
+  --chart-bar-hover: #86b6ef;
+  --chart-grid: #2c2c2a;
+  --chart-axis: #383835;
+  --chart-ink: #ffffff;
+  --chart-ink-secondary: #c3c2b7;
+  --chart-ink-muted: #949389;
+
+  /* On a dark surface the ramp anchors the other way: near-zero recedes
+     toward the surface, high values come forward. */
+  --heat-0: #262625;
+  --heat-1: #184f95;
+  --heat-2: #256abf;
+  --heat-3: #3987e5;
+  --heat-4: #86b6ef;
+
+  --success: #0ca30c;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* Chart marks never animate on load for users who ask for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Texture — the backup identity channel. Off by default; only forced-colors
+   and print turn it on, per the dataviz skill. */
+@media print, (forced-colors: active) {
+  .heat-cell[data-level="1"],
+  .heat-cell[data-level="2"],
+  .heat-cell[data-level="3"],
+  .heat-cell[data-level="4"] {
+    forced-color-adjust: none;
+  }
+}
+
+/* A thin scrollbar that matches the surface instead of the OS default. */
+@supports (scrollbar-width: thin) {
+  .thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+}
