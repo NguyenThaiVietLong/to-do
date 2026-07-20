@@ -80,7 +80,7 @@ must always be reachable as text.
 
 ## Data
 
-Three tables — `lists`, `tasks` and `roadmaps` — created on first use by
+Four tables — `lists`, `tasks`, `roadmaps` and `recurrences` — created on first use by
 [db.ts](src/lib/db.ts). Deleting a list cascades to its tasks and its roadmap.
 
 Two decisions worth keeping if you touch the schema:
@@ -112,6 +112,8 @@ curl -X POST localhost:3000/api/reset -H 'Content-Type: application/json' \
 | `PATCH DELETE /api/tasks/[id]` | Update, delete |
 | `GET POST /api/lists` | List, create |
 | `PATCH DELETE /api/lists/[id]` | Update, delete (takes its tasks with it) |
+| `GET POST /api/recurrences` | List, create repeat rules |
+| `PATCH DELETE /api/recurrences/[id]` | Update, delete |
 | `GET POST /api/roadmaps` | List, create |
 | `PATCH DELETE /api/roadmaps/[id]` | Update target/deadline, delete |
 | `POST /api/reset` | Empty, or `{"seed":true}` |
@@ -138,6 +140,24 @@ choice between two defensible options:
 Pace assumes an even split of the days between start and deadline. Past the
 deadline the expectation stops at the full target rather than climbing beyond
 it, so "behind by N" stays a real number instead of growing forever.
+
+## Repeat schedules
+
+A list can carry repeat rules — "every day", "Mon Wed Fri" — each with its own
+date range, so a schedule that changes partway through is two rules rather than
+something you have to remember to edit. `GET /api/state` catches them up and
+generates the next 7 days.
+
+Two decisions keep generation predictable:
+
+- **A rule only ever moves forward.** It records the furthest date it has
+  covered and never regenerates behind that, so deleting a task the rule
+  created is permanent instead of it reappearing on the next page load.
+- **Task ids are `<rule>-<date>`.** Two generators racing collide on the
+  primary key instead of producing the same day twice.
+
+Rules have no concept of an exception date. A holiday means deleting the tasks
+for those days once — which sticks, per the rule above.
 
 ## Auth
 

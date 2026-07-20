@@ -141,7 +141,7 @@ export function buildSeed(): AppState {
 
   // No sample roadmaps: a roadmap starts counting from the day it is switched
   // on, so a seeded one would open at 0% against a year of history behind it.
-  return { lists: LISTS, tasks, roadmaps: [] };
+  return { lists: LISTS, tasks, roadmaps: [], recurrences: [] };
 }
 
 function fromParts(iso: string): number {
