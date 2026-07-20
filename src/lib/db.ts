@@ -70,6 +70,9 @@ async function migrate(): Promise<void> {
     )
   `;
   await db`CREATE INDEX IF NOT EXISTS tasks_list_id_idx ON tasks (list_id)`;
+  // Added after the table shipped, so it has to be an ALTER rather than part of
+  // the CREATE above — an existing database never re-runs that.
+  await db`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS my_day_set_on TEXT`;
 
   await db`
     CREATE TABLE IF NOT EXISTS recurrences (
@@ -429,9 +432,11 @@ export async function generateRecurringTasks(
     for (const row of rows) {
       // The id is derived from rule + date, so a concurrent second generator
       // collides instead of duplicating the day's task.
+      const isToday = row.date === today;
       const res = await db`
-        INSERT INTO tasks (id, list_id, title, created_at, due_date)
-        VALUES (${row.id}, ${r.listId}, ${r.title}, ${today}, ${row.date})
+        INSERT INTO tasks (id, list_id, title, created_at, due_date, my_day, my_day_set_on)
+        VALUES (${row.id}, ${r.listId}, ${r.title}, ${today}, ${row.date},
+                ${isToday}, ${isToday ? today : null})
         ON CONFLICT (id) DO NOTHING
         RETURNING id
       `;
@@ -441,6 +446,28 @@ export async function generateRecurringTasks(
     await db`UPDATE recurrences SET last_generated_on = ${to} WHERE id = ${r.id}`;
   }
   return created;
+}
+
+/**
+ * Anything due today belongs in My Day.
+ *
+ * Tasks are generated up to a week ahead, so being marked at creation is not
+ * enough — a task made on Monday for Friday has to be pulled in when Friday
+ * arrives. `my_day_set_on` records the day this ran for a given task, so it
+ * fires once per task per day: taking something back out of My Day sticks for
+ * the rest of that day instead of being undone on the next page load.
+ */
+export async function promoteTodayToMyDay(today: string): Promise<number> {
+  await init();
+  const rows = await sql()`
+    UPDATE tasks
+       SET my_day = TRUE, my_day_set_on = ${today}
+     WHERE due_date = ${today}
+       AND completed = FALSE
+       AND (my_day_set_on IS NULL OR my_day_set_on <> ${today})
+    RETURNING id
+  `;
+  return (rows as Row[]).length;
 }
 
 /** Wipe everything and write the given state back. */
