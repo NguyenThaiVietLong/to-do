@@ -11,7 +11,10 @@ import type { AppState } from "./types";
 /* by eye when something looks wrong.                                          */
 /* -------------------------------------------------------------------------- */
 
-const DB_PATH = path.join(process.cwd(), "data", "db.json");
+// DATA_DIR points at the mounted volume when deployed; locally it is ./data.
+// Resolved once per process — the file must not move under a running server.
+const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
+const DB_PATH = path.join(DATA_DIR, "db.json");
 
 /** A fresh install: the default lists, no tasks. */
 export function emptyState(): AppState {
