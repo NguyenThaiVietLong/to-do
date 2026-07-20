@@ -1,5 +1,6 @@
 import { emptyState, writeState } from "@/lib/db";
 import { buildSeed } from "@/lib/seed";
+import { requireSession } from "@/lib/guard";
 
 /**
  * Wipe the store. Empty by default — the default lists with no tasks.
@@ -7,6 +8,9 @@ import { buildSeed } from "@/lib/seed";
  * only thing that makes the dashboard charts worth looking at.
  */
 export async function POST(request: Request) {
+  const denied = await requireSession();
+  if (denied !== null) return denied;
+
   const body: unknown = await request.json().catch(() => null);
   const seed =
     typeof body === "object" &&

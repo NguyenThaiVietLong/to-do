@@ -1,11 +1,18 @@
 import { mutate, readState } from "@/lib/db";
 import { parseNewTask } from "@/lib/validate";
+import { requireSession } from "@/lib/guard";
 
 export async function GET() {
+  const denied = await requireSession();
+  if (denied !== null) return denied;
+
   return Response.json((await readState()).tasks);
 }
 
 export async function POST(request: Request) {
+  const denied = await requireSession();
+  if (denied !== null) return denied;
+
   const body: unknown = await request.json().catch(() => null);
   const task = parseNewTask(body);
   if (task === null) {
