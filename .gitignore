@@ -48,3 +48,8 @@ next-env.d.ts
 
 # local data store
 /data/
+
+# file ke hoach ca nhan, khong commit
+timeline-roadmap.html
+lich-roadmap.csv
+.~lock.*#

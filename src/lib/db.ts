@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
+import { addDays, daysBetween, fromISO, mondayIndex } from "./date";
 import { LISTS } from "./seed";
-import type { AppState, Roadmap, Step, Task, TaskList } from "./types";
+import type { AppState, Recurrence, Roadmap, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Postgres store                                                              */
@@ -30,7 +31,7 @@ function sql(): Sql {
 
 /** The default lists a fresh database starts with. */
 export function emptyState(): AppState {
-  return { lists: LISTS.map((l) => ({ ...l })), tasks: [], roadmaps: [] };
+  return { lists: LISTS.map((l) => ({ ...l })), tasks: [], roadmaps: [], recurrences: [] };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -69,6 +70,19 @@ async function migrate(): Promise<void> {
     )
   `;
   await db`CREATE INDEX IF NOT EXISTS tasks_list_id_idx ON tasks (list_id)`;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS recurrences (
+      id                TEXT PRIMARY KEY,
+      list_id           TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+      title             TEXT NOT NULL,
+      weekdays          JSONB NOT NULL,
+      starts_on         TEXT NOT NULL,
+      ends_on           TEXT,
+      last_generated_on TEXT,
+      seq               BIGSERIAL
+    )
+  `;
 
   await db`
     CREATE TABLE IF NOT EXISTS roadmaps (
@@ -139,6 +153,18 @@ function toRoadmap(r: Row): Roadmap {
   };
 }
 
+function toRecurrence(r: Row): Recurrence {
+  return {
+    id: r.id as string,
+    listId: r.list_id as string,
+    title: r.title as string,
+    weekdays: (r.weekdays as number[] | null) ?? [],
+    startsOn: r.starts_on as string,
+    endsOn: (r.ends_on as string | null) ?? null,
+    lastGeneratedOn: (r.last_generated_on as string | null) ?? null,
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /* Reads                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -147,15 +173,17 @@ export async function readState(): Promise<AppState> {
   await init();
   const db = sql();
   // Newest task first, matching the old in-memory prepend.
-  const [lists, tasks, roadmaps] = await Promise.all([
+  const [lists, tasks, roadmaps, recurrences] = await Promise.all([
     db`SELECT * FROM lists ORDER BY seq ASC`,
     db`SELECT * FROM tasks ORDER BY seq DESC`,
     db`SELECT * FROM roadmaps ORDER BY seq ASC`,
+    db`SELECT * FROM recurrences ORDER BY seq ASC`,
   ]);
   return {
     lists: (lists as Row[]).map(toList),
     tasks: (tasks as Row[]).map(toTask),
     roadmaps: (roadmaps as Row[]).map(toRoadmap),
+    recurrences: (recurrences as Row[]).map(toRecurrence),
   };
 }
 
@@ -315,12 +343,113 @@ export async function deleteRoadmap(id: string): Promise<boolean> {
   return (rows as Row[]).length > 0;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Recurring tasks                                                             */
+/* -------------------------------------------------------------------------- */
+
+export async function readRecurrences(): Promise<Recurrence[]> {
+  await init();
+  const rows = await sql()`SELECT * FROM recurrences ORDER BY seq ASC`;
+  return (rows as Row[]).map(toRecurrence);
+}
+
+export async function insertRecurrence(r: Recurrence): Promise<Recurrence> {
+  await init();
+  const rows = await sql()`
+    INSERT INTO recurrences (id, list_id, title, weekdays, starts_on, ends_on, last_generated_on)
+    VALUES (${r.id}, ${r.listId}, ${r.title}, ${JSON.stringify(r.weekdays)}::jsonb,
+            ${r.startsOn}, ${r.endsOn}, ${r.lastGeneratedOn})
+    RETURNING *
+  `;
+  return toRecurrence((rows as Row[])[0]);
+}
+
+export async function updateRecurrence(
+  id: string,
+  patch: Partial<Recurrence>,
+): Promise<Recurrence | null> {
+  await init();
+  const rows = await sql()`
+    UPDATE recurrences SET
+      title     = COALESCE(${patch.title ?? null}::text, title),
+      weekdays  = COALESCE(${
+        patch.weekdays === undefined ? null : JSON.stringify(patch.weekdays)
+      }::jsonb, weekdays),
+      starts_on = COALESCE(${patch.startsOn ?? null}::text, starts_on),
+      ends_on   = CASE WHEN ${"endsOn" in patch}::boolean
+                    THEN ${patch.endsOn ?? null}::text ELSE ends_on END
+    WHERE id = ${id}
+    RETURNING *
+  `;
+  const found = (rows as Row[])[0];
+  return found === undefined ? null : toRecurrence(found);
+}
+
+export async function deleteRecurrence(id: string): Promise<boolean> {
+  await init();
+  const rows = await sql()`DELETE FROM recurrences WHERE id = ${id} RETURNING id`;
+  return (rows as Row[]).length > 0;
+}
+
+// A generated task is never regenerated. Each rule remembers the furthest date
+// it has covered and only ever moves forward from there — so deleting a task
+// the rule created is permanent, instead of it reappearing on the next load.
+// The cap is a backstop: a rule dated far in the past must not spin here.
+const MAX_GENERATED_PER_RUN = 400;
+
+export async function generateRecurringTasks(
+  today: string,
+  lookaheadDays = 7,
+): Promise<number> {
+  await init();
+  const db = sql();
+  const rules = await readRecurrences();
+  const horizon = addDays(today, lookaheadDays);
+  let created = 0;
+
+  for (const r of rules) {
+    if (r.weekdays.length === 0) continue;
+
+    let from = r.lastGeneratedOn === null ? r.startsOn : addDays(r.lastGeneratedOn, 1);
+    if (daysBetween(from, r.startsOn) > 0) from = r.startsOn;
+
+    let to = horizon;
+    if (r.endsOn !== null && daysBetween(r.endsOn, to) > 0) to = r.endsOn;
+    if (daysBetween(from, to) < 0) continue;
+
+    const rows: { id: string; date: string }[] = [];
+    let day = from;
+    for (let i = 0; daysBetween(day, to) >= 0 && i <= MAX_GENERATED_PER_RUN; i++) {
+      if (r.weekdays.includes(mondayIndex(fromISO(day)))) {
+        rows.push({ id: `${r.id}-${day}`, date: day });
+      }
+      day = addDays(day, 1);
+    }
+
+    for (const row of rows) {
+      // The id is derived from rule + date, so a concurrent second generator
+      // collides instead of duplicating the day's task.
+      const res = await db`
+        INSERT INTO tasks (id, list_id, title, created_at, due_date)
+        VALUES (${row.id}, ${r.listId}, ${r.title}, ${today}, ${row.date})
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      `;
+      if ((res as Row[]).length > 0) created++;
+    }
+
+    await db`UPDATE recurrences SET last_generated_on = ${to} WHERE id = ${r.id}`;
+  }
+  return created;
+}
+
 /** Wipe everything and write the given state back. */
 export async function replaceState(state: AppState): Promise<AppState> {
   await init();
   const db = sql();
 
   // Truncating lists cascades into tasks.
+  // Cascades into tasks, roadmaps and recurrences.
   await db`TRUNCATE lists CASCADE`;
 
   for (const list of state.lists) {
@@ -344,6 +473,13 @@ export async function replaceState(state: AppState): Promise<AppState> {
     await db`
       INSERT INTO roadmaps (id, list_id, target, deadline, started_at)
       VALUES (${r.id}, ${r.listId}, ${r.target}, ${r.deadline}, ${r.startedAt})
+    `;
+  }
+  for (const r of state.recurrences) {
+    await db`
+      INSERT INTO recurrences (id, list_id, title, weekdays, starts_on, ends_on, last_generated_on)
+      VALUES (${r.id}, ${r.listId}, ${r.title}, ${JSON.stringify(r.weekdays)}::jsonb,
+              ${r.startsOn}, ${r.endsOn}, ${r.lastGeneratedOn})
     `;
   }
   return readState();

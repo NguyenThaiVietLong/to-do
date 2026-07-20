@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Target, Trash2 } from "lucide-react";
+import { Plus, Repeat, Target, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { roadmapProgress, type RoadmapProgress } from "@/lib/selectors";
 import { addDays, formatLong, todayISO } from "@/lib/date";
@@ -12,6 +12,132 @@ import { cn } from "@/lib/utils";
 /** One decimal, but no trailing ".0" — 37% reads better than 37.0%. */
 function pct(n: number): string {
   return `${Number(n.toFixed(1))}%`;
+}
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/**
+ * The repeat rules that feed a list. Tasks are generated server-side when the
+ * app loads, so a rule added here shows up as real tasks after the refetch.
+ */
+function Recurrences({ listId, defaultTitle }: { listId: string; defaultTitle: string }) {
+  const store = useStore();
+  const rules = store.recurrences.filter((r) => r.listId === listId);
+  const [adding, setAdding] = useState(false);
+  const [title, setTitle] = useState(defaultTitle);
+  const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  const [from, setFrom] = useState(todayISO());
+  const [to, setTo] = useState("");
+
+  const toggle = (d: number) =>
+    setDays((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort()));
+
+  return (
+    <div className="mt-4 border-t pt-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Repeat className="size-3.5" />
+          Repeat schedule
+        </h3>
+        {!adding && (
+          <button
+            onClick={() => setAdding(true)}
+            className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+          >
+            Add rule
+          </button>
+        )}
+      </div>
+
+      {rules.length === 0 && !adding && (
+        <p className="text-xs text-muted-foreground">
+          No rule yet — tasks for this list have to be added by hand.
+        </p>
+      )}
+
+      <ul className="space-y-1.5">
+        {rules.map((r) => (
+          <li key={r.id} className="flex items-center justify-between gap-3 text-xs">
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="font-medium">{r.title}</span>
+              <span className="text-muted-foreground">
+                {r.weekdays.length === 7
+                  ? "every day"
+                  : r.weekdays.map((d) => WEEKDAYS[d]).join(" ")}
+              </span>
+              <span className="text-muted-foreground">
+                · from {r.startsOn}
+                {r.endsOn !== null && ` to ${r.endsOn}`}
+              </span>
+            </span>
+            <button
+              onClick={() => {
+                if (confirm(`Stop generating "${r.title}"? Tasks already created stay.`)) {
+                  store.deleteRecurrence(r.id);
+                }
+              }}
+              aria-label={`Delete the rule ${r.title}`}
+              className="shrink-0 text-muted-foreground hover:text-red-600 dark:hover:text-red-400"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      {adding && (
+        <div className="mt-3 space-y-2">
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Task title"
+            aria-label="Task title"
+            className="h-8 text-sm"
+          />
+          <div className="flex flex-wrap gap-1">
+            {WEEKDAYS.map((w, i) => (
+              <button
+                key={w}
+                onClick={() => toggle(i)}
+                aria-pressed={days.includes(i)}
+                className={cn(
+                  "rounded-md border px-2 py-1 text-xs",
+                  days.includes(i)
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-secondary",
+                )}
+              >
+                {w}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs">
+              <span className="mb-1 block text-muted-foreground">From</span>
+              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-8 text-sm" />
+            </label>
+            <label className="text-xs">
+              <span className="mb-1 block text-muted-foreground">To (optional)</span>
+              <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="h-8 text-sm" />
+            </label>
+            <Button
+              className="h-8"
+              disabled={days.length === 0 || title.trim() === "" || (to !== "" && to < from)}
+              onClick={() => {
+                store.addRecurrence(listId, title.trim(), days, from, to === "" ? null : to);
+                setAdding(false);
+              }}
+            >
+              Save
+            </Button>
+            <Button variant="ghost" className="h-8" onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function RoadmapCard({ p }: { p: RoadmapProgress }) {
@@ -112,6 +238,8 @@ function RoadmapCard({ p }: { p: RoadmapProgress }) {
           )}
         </span>
       </div>
+
+      <Recurrences listId={p.roadmap.listId} defaultTitle={p.listName} />
 
       {editing ? (
         <div className="mt-4 flex flex-wrap items-end gap-2 border-t pt-4">

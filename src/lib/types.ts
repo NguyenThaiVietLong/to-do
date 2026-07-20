@@ -48,8 +48,26 @@ export interface Roadmap {
   startedAt: string;
 }
 
+export interface Recurrence {
+  id: string;
+  listId: string;
+  /** Title given to every task this rule creates. */
+  title: string;
+  /** Monday-first weekday indices (0 = Mon … 6 = Sun). */
+  weekdays: number[];
+  startsOn: string;
+  /** null = runs forever. */
+  endsOn: string | null;
+  /**
+   * The furthest date already generated. Generation only ever moves forward
+   * from here, so deleting a generated task does not bring it back.
+   */
+  lastGeneratedOn: string | null;
+}
+
 export interface AppState {
   lists: TaskList[];
   tasks: Task[];
   roadmaps: Roadmap[];
+  recurrences: Recurrence[];
 }

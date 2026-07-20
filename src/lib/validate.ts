@@ -1,5 +1,5 @@
 import { todayISO } from "./date";
-import type { Roadmap, Step, Task, TaskList } from "./types";
+import type { Recurrence, Roadmap, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Request body validation                                                     */
@@ -176,6 +176,77 @@ export function parseRoadmapPatch(body: unknown): Partial<Roadmap> | null {
   if ("deadline" in b) {
     if (typeof b.deadline !== "string" || !ISO_DATE.test(b.deadline)) return null;
     patch.deadline = b.deadline;
+  }
+  return patch;
+}
+
+/** Monday-first weekday indices, deduped and sorted. */
+function parseWeekdays(v: unknown): number[] | null {
+  if (!Array.isArray(v) || v.length === 0) return null;
+  const out = new Set<number>();
+  for (const x of v) {
+    if (typeof x !== "number" || !Number.isInteger(x) || x < 0 || x > 6) return null;
+    out.add(x);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+export function parseNewRecurrence(
+  body: unknown,
+  today: string,
+): Recurrence | null {
+  const b = asRecord(body);
+  if (b === null) return null;
+  if (typeof b.listId !== "string" || !b.listId) return null;
+  if (typeof b.title !== "string" || !b.title.trim()) return null;
+
+  const weekdays = parseWeekdays(b.weekdays);
+  if (weekdays === null) return null;
+
+  const startsOn =
+    typeof b.startsOn === "string" && ISO_DATE.test(b.startsOn) ? b.startsOn : today;
+
+  let endsOn: string | null = null;
+  if (b.endsOn !== undefined && b.endsOn !== null) {
+    if (typeof b.endsOn !== "string" || !ISO_DATE.test(b.endsOn)) return null;
+    // An end before the start would generate nothing — reject rather than
+    // silently create a rule that can never fire.
+    if (b.endsOn < startsOn) return null;
+    endsOn = b.endsOn;
+  }
+
+  return {
+    id: typeof b.id === "string" && b.id ? b.id : makeId("rr"),
+    listId: b.listId,
+    title: b.title.trim(),
+    weekdays,
+    startsOn,
+    endsOn,
+    lastGeneratedOn: null,
+  };
+}
+
+export function parseRecurrencePatch(body: unknown): Partial<Recurrence> | null {
+  const b = asRecord(body);
+  if (b === null) return null;
+  const patch: Partial<Recurrence> = {};
+  if ("title" in b) {
+    if (typeof b.title !== "string" || !b.title.trim()) return null;
+    patch.title = b.title.trim();
+  }
+  if ("weekdays" in b) {
+    const w = parseWeekdays(b.weekdays);
+    if (w === null) return null;
+    patch.weekdays = w;
+  }
+  if ("startsOn" in b) {
+    if (typeof b.startsOn !== "string" || !ISO_DATE.test(b.startsOn)) return null;
+    patch.startsOn = b.startsOn;
+  }
+  if ("endsOn" in b) {
+    if (b.endsOn === null) patch.endsOn = null;
+    else if (typeof b.endsOn === "string" && ISO_DATE.test(b.endsOn)) patch.endsOn = b.endsOn;
+    else return null;
   }
   return patch;
 }

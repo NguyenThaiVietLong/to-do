@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import { todayISO } from "./date";
-import type { AppState, Roadmap, Step, Task, TaskList } from "./types";
+import type { AppState, Recurrence, Roadmap, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* External store, backed by the API                                           */
@@ -18,7 +18,7 @@ import type { AppState, Roadmap, Step, Task, TaskList } from "./types";
 
 const LEGACY_STORAGE_KEY = "mstodo.state.v1";
 
-const EMPTY: AppState = { lists: [], tasks: [], roadmaps: [] };
+const EMPTY: AppState = { lists: [], tasks: [], roadmaps: [], recurrences: [] };
 
 let cache: AppState = EMPTY;
 let ready = false;
@@ -190,6 +190,7 @@ const actions = {
       tasks: cache.tasks.filter((t) => t.listId !== id),
       // Mirrors ON DELETE CASCADE, so the optimistic view matches the server.
       roadmaps: cache.roadmaps.filter((r) => r.listId !== id),
+      recurrences: cache.recurrences.filter((r) => r.listId !== id),
     });
     send(api(`/lists/${id}`, { method: "DELETE" }));
   },
@@ -218,6 +219,34 @@ const actions = {
   deleteRoadmap(id: string) {
     setState({ ...cache, roadmaps: cache.roadmaps.filter((r) => r.id !== id) });
     send(api(`/roadmaps/${id}`, { method: "DELETE" }));
+  },
+
+  addRecurrence(
+    listId: string,
+    title: string,
+    weekdays: number[],
+    startsOn: string,
+    endsOn: string | null,
+  ): string {
+    const rule: Recurrence = {
+      id: makeId("rr"),
+      listId,
+      title,
+      weekdays,
+      startsOn,
+      endsOn,
+      lastGeneratedOn: null,
+    };
+    setState({ ...cache, recurrences: [...cache.recurrences, rule] });
+    // Refetch after the write: the server generates tasks from the new rule,
+    // and the optimistic cache has no way to know which ones.
+    send(api("/recurrences", { method: "POST", body: JSON.stringify(rule) }).then(refresh));
+    return rule.id;
+  },
+
+  deleteRecurrence(id: string) {
+    setState({ ...cache, recurrences: cache.recurrences.filter((r) => r.id !== id) });
+    send(api(`/recurrences/${id}`, { method: "DELETE" }));
   },
 
   /** Back to the default lists with no tasks. */
