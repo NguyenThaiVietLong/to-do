@@ -1,4 +1,4 @@
-import { generateRecurringTasks, readState } from "@/lib/db";
+import { generateRecurringTasks, promoteTodayToMyDay, readState } from "@/lib/db";
 import { requireSession } from "@/lib/guard";
 import { todayISO } from "@/lib/date";
 
@@ -11,7 +11,11 @@ export async function GET() {
   // materialises today's tasks. A failure here must not blank the whole app —
   // the existing tasks are still worth serving.
   try {
-    await generateRecurringTasks(todayISO());
+    const today = todayISO();
+    await generateRecurringTasks(today);
+    // After generating, so a task created for today lands in My Day on the same
+    // request rather than a page load later.
+    await promoteTodayToMyDay(today);
   } catch (err: unknown) {
     console.error("[recurrences] generation failed", err);
   }

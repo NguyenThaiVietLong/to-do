@@ -156,6 +156,12 @@ Two decisions keep generation predictable:
 - **Task ids are `<rule>-<date>`.** Two generators racing collide on the
   primary key instead of producing the same day twice.
 
+**Anything due today is pulled into My Day.** Because tasks are generated up
+to a week ahead, being marked at creation is not enough — a task made on Monday
+for Friday is pulled in when Friday arrives. It fires once per task per day, so
+taking something back out of My Day sticks for the rest of that day. Completed
+tasks are left alone.
+
 Rules have no concept of an exception date. A holiday means deleting the tasks
 for those days once — which sticks, per the rule above.
 
