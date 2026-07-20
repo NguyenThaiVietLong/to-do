@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { StoreProvider } from "@/lib/store";
 import { ThemeProvider, themeScript } from "@/components/theme-provider";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AppShell } from "@/components/app-shell";
 
 export const metadata: Metadata = {
   title: "To Do",
   description: "A Microsoft To Do clone with a productivity dashboard.",
 };
 
+/**
+ * Only what every route needs. The sidebar and the store live in the `(app)`
+ * group instead, so the login screen isn't wrapped in a shell it can't use.
+ */
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
@@ -19,13 +20,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="h-full overflow-hidden">
-        <ThemeProvider>
-          <StoreProvider>
-            <TooltipProvider delay={200}>
-              <AppShell>{children}</AppShell>
-            </TooltipProvider>
-          </StoreProvider>
-        </ThemeProvider>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

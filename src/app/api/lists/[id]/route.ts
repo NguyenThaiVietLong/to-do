@@ -1,11 +1,15 @@
 import { mutate } from "@/lib/db";
 import { parseListPatch } from "@/lib/validate";
 import type { TaskList } from "@/lib/types";
+import { requireSession } from "@/lib/guard";
 
 export async function PATCH(
   request: Request,
   ctx: RouteContext<"/api/lists/[id]">,
 ) {
+  const denied = await requireSession();
+  if (denied !== null) return denied;
+
   const { id } = await ctx.params;
   const body: unknown = await request.json().catch(() => null);
   const patch = parseListPatch(body);
@@ -34,6 +38,9 @@ export async function DELETE(
   _request: Request,
   ctx: RouteContext<"/api/lists/[id]">,
 ) {
+  const denied = await requireSession();
+  if (denied !== null) return denied;
+
   const { id } = await ctx.params;
 
   const deleted = await mutate((s) =>
