@@ -43,3 +43,6 @@ next-env.d.ts
 # Local Claude Code toolkit (skills, agents, hooks) — personal setup, not part
 # of the app. settings.local.json in particular holds machine-specific paths.
 .claude/
+
+# local data store
+/data/

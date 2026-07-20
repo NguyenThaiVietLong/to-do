@@ -2,83 +2,110 @@
 
 import { createContext, useContext, useMemo, useSyncExternalStore } from "react";
 import { todayISO } from "./date";
-import { buildSeed } from "./seed";
 import type { AppState, Step, Task, TaskList } from "./types";
 
-const STORAGE_KEY = "mstodo.state.v1";
-
 /* -------------------------------------------------------------------------- */
-/* External store                                                              */
+/* External store, backed by the API                                           */
 /*                                                                             */
-/* localStorage is an external system, so it is read through                    */
-/* useSyncExternalStore rather than an effect that calls setState. That keeps    */
-/* the server render and the hydration render in agreement without a cascading   */
-/* second render, and it lets two open tabs stay in sync for free.              */
+/* State lives on the server now (data/db.json). The client keeps a mirror and  */
+/* applies every change locally first, then sends it — a to-do list should      */
+/* never feel like it is waiting on a network. If a write fails, we refetch      */
+/* rather than try to unpick the optimistic edit, so the mirror can't drift.    */
+/*                                                                             */
+/* Actions stay synchronous and ids are minted client-side, which keeps every    */
+/* calling component unchanged from the localStorage version.                   */
 /* -------------------------------------------------------------------------- */
+
+const LEGACY_STORAGE_KEY = "mstodo.state.v1";
 
 const EMPTY: AppState = { lists: [], tasks: [] };
 
-let cache: AppState | null = null;
+let cache: AppState = EMPTY;
+let ready = false;
+let booted = false;
 const listeners = new Set<() => void>();
 
-function isValid(state: unknown): state is AppState {
-  if (typeof state !== "object" || state === null) return false;
-  const s = state as AppState;
-  return Array.isArray(s.lists) && Array.isArray(s.tasks);
-}
-
-function load(): AppState {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return isValid(parsed) ? parsed : buildSeed();
-  } catch {
-    // Corrupt JSON, or storage blocked in private mode — start fresh rather
-    // than leaving the app with nothing to render.
-    return buildSeed();
-  }
-}
-
-function getSnapshot(): AppState {
-  if (cache === null) cache = load();
-  return cache;
-}
-
-function getServerSnapshot(): AppState {
-  return EMPTY;
-}
-
-function onStorage(e: StorageEvent) {
-  if (e.key !== null && e.key !== STORAGE_KEY) return;
-  cache = load();
+function emit() {
   listeners.forEach((l) => l());
+}
+
+function setState(next: AppState) {
+  cache = next;
+  emit();
+}
+
+async function api(path: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(`/api${path}`, {
+    ...init,
+    headers: init?.body === undefined ? undefined : { "Content-Type": "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(`${init?.method ?? "GET"} /api${path} → ${res.status}`);
+  }
+  return res;
+}
+
+async function refresh(): Promise<void> {
+  const state = (await (await api("/state")).json()) as AppState;
+  ready = true;
+  setState(state);
+}
+
+/** Fire a write; on failure fall back to whatever the server actually has. */
+function send(work: Promise<unknown>) {
+  work.catch((err: unknown) => {
+    console.error("[store] write failed, resyncing", err);
+    void refresh().catch(() => undefined);
+  });
+}
+
+function boot() {
+  if (booted) return;
+  booted = true;
+
+  // Data moved to the server; the old browser copy is dead weight that would
+  // only confuse anyone who goes looking in devtools.
+  try {
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    // Storage blocked — nothing to clean up.
+  }
+
+  refresh().catch((err: unknown) => {
+    console.error("[store] initial load failed", err);
+    // Let the UI render empty instead of hanging on the loading state forever.
+    ready = true;
+    emit();
+  });
 }
 
 function subscribe(listener: () => void) {
-  if (listeners.size === 0) window.addEventListener("storage", onStorage);
   listeners.add(listener);
+  boot();
   return () => {
     listeners.delete(listener);
-    if (listeners.size === 0) window.removeEventListener("storage", onStorage);
   };
 }
 
-function commit(next: AppState) {
-  cache = next;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  } catch {
-    // Over quota — the change still applies for this session.
-  }
-  listeners.forEach((l) => l());
-}
-
-function update(fn: (s: AppState) => AppState) {
-  commit(fn(getSnapshot()));
-}
+const getSnapshot = () => cache;
+const getServerSnapshot = () => EMPTY;
+const getReady = () => ready;
+const getServerReady = () => false;
 
 function mapTask(id: string, fn: (t: Task) => Task) {
-  update((s) => ({ ...s, tasks: s.tasks.map((t) => (t.id === id ? fn(t) : t)) }));
+  setState({ ...cache, tasks: cache.tasks.map((t) => (t.id === id ? fn(t) : t)) });
+}
+
+/** Local edit + PATCH, the shape almost every task action takes. */
+function patchTask(id: string, patch: Partial<Task>) {
+  mapTask(id, (t) => ({ ...t, ...patch }));
+  send(api(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }));
+}
+
+function withSteps(taskId: string, fn: (steps: Step[]) => Step[]) {
+  const task = cache.tasks.find((t) => t.id === taskId);
+  if (task === undefined) return;
+  patchTask(taskId, { steps: fn(task.steps) });
 }
 
 function makeId(prefix: string) {
@@ -91,90 +118,83 @@ function makeId(prefix: string) {
 
 const actions = {
   addTask(listId: string, title: string, opts?: Partial<Task>) {
-    update((s) => ({
-      ...s,
-      tasks: [
-        {
-          id: makeId("t"),
-          listId,
-          title,
-          note: "",
-          completed: false,
-          completedAt: null,
-          createdAt: todayISO(),
-          dueDate: null,
-          myDay: false,
-          important: false,
-          steps: [],
-          ...opts,
-        },
-        ...s.tasks,
-      ],
-    }));
+    const task: Task = {
+      id: makeId("t"),
+      listId,
+      title,
+      note: "",
+      completed: false,
+      completedAt: null,
+      createdAt: todayISO(),
+      dueDate: null,
+      myDay: false,
+      important: false,
+      steps: [],
+      ...opts,
+    };
+    setState({ ...cache, tasks: [task, ...cache.tasks] });
+    send(api("/tasks", { method: "POST", body: JSON.stringify(task) }));
   },
 
   toggleTask(id: string) {
-    mapTask(id, (t) => ({
-      ...t,
-      completed: !t.completed,
-      completedAt: t.completed ? null : todayISO(),
-    }));
+    const task = cache.tasks.find((t) => t.id === id);
+    if (task === undefined) return;
+    patchTask(id, {
+      completed: !task.completed,
+      completedAt: task.completed ? null : todayISO(),
+    });
   },
 
   updateTask(id: string, patch: Partial<Task>) {
-    mapTask(id, (t) => ({ ...t, ...patch }));
+    patchTask(id, patch);
   },
 
   deleteTask(id: string) {
-    update((s) => ({ ...s, tasks: s.tasks.filter((t) => t.id !== id) }));
+    setState({ ...cache, tasks: cache.tasks.filter((t) => t.id !== id) });
+    send(api(`/tasks/${id}`, { method: "DELETE" }));
   },
 
   addStep(taskId: string, title: string) {
-    mapTask(taskId, (t) => ({
-      ...t,
-      steps: [...t.steps, { id: makeId("s"), title, done: false }],
-    }));
+    withSteps(taskId, (steps) => [...steps, { id: makeId("s"), title, done: false }]);
   },
 
   toggleStep(taskId: string, stepId: string) {
-    mapTask(taskId, (t) => ({
-      ...t,
-      steps: t.steps.map((s: Step) =>
-        s.id === stepId ? { ...s, done: !s.done } : s,
-      ),
-    }));
+    withSteps(taskId, (steps) =>
+      steps.map((s) => (s.id === stepId ? { ...s, done: !s.done } : s)),
+    );
   },
 
   deleteStep(taskId: string, stepId: string) {
-    mapTask(taskId, (t) => ({
-      ...t,
-      steps: t.steps.filter((s) => s.id !== stepId),
-    }));
+    withSteps(taskId, (steps) => steps.filter((s) => s.id !== stepId));
   },
 
   addList(name: string): string {
     const list: TaskList = { id: makeId("l"), name, icon: "📋" };
-    update((s) => ({ ...s, lists: [...s.lists, list] }));
+    setState({ ...cache, lists: [...cache.lists, list] });
+    send(api("/lists", { method: "POST", body: JSON.stringify(list) }));
     return list.id;
   },
 
   renameList(id: string, name: string) {
-    update((s) => ({
-      ...s,
-      lists: s.lists.map((l) => (l.id === id ? { ...l, name } : l)),
-    }));
+    setState({
+      ...cache,
+      lists: cache.lists.map((l) => (l.id === id ? { ...l, name } : l)),
+    });
+    send(api(`/lists/${id}`, { method: "PATCH", body: JSON.stringify({ name }) }));
   },
 
   /** Deleting a list takes its tasks with it, the same as To Do does. */
   deleteList(id: string) {
-    update((s) => ({
-      lists: s.lists.filter((l) => l.id !== id),
-      tasks: s.tasks.filter((t) => t.listId !== id),
-    }));
+    setState({
+      lists: cache.lists.filter((l) => l.id !== id),
+      tasks: cache.tasks.filter((t) => t.listId !== id),
+    });
+    send(api(`/lists/${id}`, { method: "DELETE" }));
   },
 
+  /** Back to the default lists with no tasks. */
   resetAll() {
-    commit(buildSeed());
+    send(api("/reset", { method: "POST" }).then(refresh));
   },
 };
 
@@ -186,18 +206,13 @@ type StoreValue = AppState & typeof actions & { ready: boolean };
 
 const StoreContext = createContext<StoreValue | null>(null);
 
-// Constant per environment, so this never loops: false while the server HTML
-// is being matched, true once the client owns the tree.
-const clientReady = () => true;
-const serverReady = () => false;
-
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  const ready = useSyncExternalStore(subscribe, clientReady, serverReady);
+  const isReady = useSyncExternalStore(subscribe, getReady, getServerReady);
 
   const value = useMemo<StoreValue>(
-    () => ({ ...state, ...actions, ready }),
-    [state, ready],
+    () => ({ ...state, ...actions, ready: isReady }),
+    [state, isReady],
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
