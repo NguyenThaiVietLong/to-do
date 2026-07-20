@@ -54,14 +54,14 @@ export default function DashboardPage() {
           </div>
           <button
             onClick={() => {
-              if (confirm("Replace everything with fresh sample data?")) {
+              if (confirm("Delete every task and start from an empty list?")) {
                 store.resetAll();
               }
             }}
             className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
           >
             <RotateCcw className="size-3.5" />
-            Reset sample data
+            Reset data
           </button>
         </header>
 
