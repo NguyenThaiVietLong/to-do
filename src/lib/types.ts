@@ -13,6 +13,9 @@ export type Repeat =
   | { kind: "daily" }
   /** Monday-first weekday indices (0 = Mon … 6 = Sun). */
   | { kind: "weekdays"; days: number[] }
+  /** A plain 7-day cadence from the anchor — the due date, or the completion
+   *  date if the task has none. */
+  | { kind: "weekly" }
   | { kind: "monthly" };
 
 export interface Task {

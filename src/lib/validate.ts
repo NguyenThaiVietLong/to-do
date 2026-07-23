@@ -42,7 +42,9 @@ function parseRepeat(v: unknown): Repeat | null | undefined {
   if (v === null) return null;
   if (typeof v !== "object" || Array.isArray(v)) return undefined;
   const r = v as Record<string, unknown>;
-  if (r.kind === "daily" || r.kind === "monthly") return { kind: r.kind };
+  if (r.kind === "daily" || r.kind === "weekly" || r.kind === "monthly") {
+    return { kind: r.kind };
+  }
   if (r.kind === "weekdays") {
     if (!Array.isArray(r.days) || r.days.length === 0) return undefined;
     const days = new Set<number>();

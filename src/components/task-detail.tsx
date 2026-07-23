@@ -9,25 +9,27 @@ import { useStore } from "@/lib/store";
 import type { Repeat, Task } from "@/lib/types";
 
 /**
- * The select offers "Weekly" as a shorthand for "the weekday this task already
- * falls on", so the common case needs no day picker. It resolves against the
- * due date at the moment it is chosen.
+ * "Weekly" is a plain 7-day cadence from the task's anchor — its due date, or
+ * the completion date if it has none — so it needs no day picker. "Weekdays"
+ * is the separate Mon–Fri rule.
  */
 function repeatValue(r: Repeat | null): string {
   if (r === null) return "none";
   if (r.kind === "daily") return "daily";
+  if (r.kind === "weekly") return "weekly";
   if (r.kind === "monthly") return "monthly";
+  // A five-day rule is "Weekdays"; a legacy single-weekday rule was "Weekly".
   return r.days.length === 5 && r.days.every((d) => d < 5) ? "weekdays" : "weekly";
 }
 
-function repeatFrom(value: string, dueDate: string | null, today: string): Repeat | null {
+function repeatFrom(value: string): Repeat | null {
   switch (value) {
     case "daily":
       return { kind: "daily" };
     case "weekdays":
       return { kind: "weekdays", days: [0, 1, 2, 3, 4] };
     case "weekly":
-      return { kind: "weekdays", days: [mondayIndex(fromISO(dueDate ?? today))] };
+      return { kind: "weekly" };
     case "monthly":
       return { kind: "monthly" };
     default:
@@ -41,6 +43,7 @@ function nextDue(task: Task, today: string): string {
   const r = task.repeat;
   if (r === null) return from;
   if (r.kind === "daily") return addDays(from, 1);
+  if (r.kind === "weekly") return addDays(from, 7);
   if (r.kind === "monthly") {
     const d = fromISO(from);
     const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
@@ -48,6 +51,8 @@ function nextDue(task: Task, today: string): string {
     next.setDate(Math.min(d.getDate(), lastDay));
     return toISO(next);
   }
+  // Legacy single-weekday "Weekly" rules share the plain 7-day cadence.
+  if (r.days.length === 1) return addDays(from, 7);
   for (let i = 1; i <= 7; i++) {
     const candidate = addDays(from, i);
     if (r.days.includes(mondayIndex(fromISO(candidate)))) return candidate;
@@ -204,7 +209,7 @@ export function TaskDetail({ task, onClose }: { task: Task; onClose: () => void 
               value={repeatValue(task.repeat)}
               onChange={(e) =>
                 updateTask(task.id, {
-                  repeat: repeatFrom(e.target.value, task.dueDate, todayISO()),
+                  repeat: repeatFrom(e.target.value),
                 })
               }
               aria-label="Repeat"

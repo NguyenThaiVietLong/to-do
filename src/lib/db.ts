@@ -282,6 +282,7 @@ export async function readTask(id: string): Promise<Task | null> {
 /** The first date strictly after `from` that the rule allows. */
 export function nextOccurrence(repeat: Repeat, from: string): string {
   if (repeat.kind === "daily") return addDays(from, 1);
+  if (repeat.kind === "weekly") return addDays(from, 7);
   if (repeat.kind === "monthly") {
     const d = fromISO(from);
     const day = d.getDate();
@@ -292,6 +293,9 @@ export function nextOccurrence(repeat: Repeat, from: string): string {
     next.setDate(Math.min(day, lastDay));
     return toISO(next);
   }
+  // Before the dedicated "weekly" kind, "Weekly" was stored as a single
+  // weekday. Honour those legacy rules as the same 7-day cadence.
+  if (repeat.days.length === 1) return addDays(from, 7);
   if (repeat.days.length === 0) return addDays(from, 1);
   for (let i = 1; i <= 7; i++) {
     const candidate = addDays(from, i);
