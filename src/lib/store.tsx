@@ -96,10 +96,18 @@ function mapTask(id: string, fn: (t: Task) => Task) {
   setState({ ...cache, tasks: cache.tasks.map((t) => (t.id === id ? fn(t) : t)) });
 }
 
-/** Local edit + PATCH, the shape almost every task action takes. */
-function patchTask(id: string, patch: Partial<Task>) {
+/**
+ * Local edit + PATCH, the shape almost every task action takes.
+ *
+ * Completing a repeating task, or scheduling a repeat onto a finished one,
+ * spawns the next occurrence server-side — a row the optimistic mirror can't
+ * predict. Pass `resyncAfter` for those writes so fresh state is pulled once
+ * the PATCH lands, and the new task shows up without a manual reload.
+ */
+function patchTask(id: string, patch: Partial<Task>, resyncAfter = false) {
   mapTask(id, (t) => ({ ...t, ...patch }));
-  send(api(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) }));
+  const work = api(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  send(resyncAfter ? work.then(() => refresh()) : work);
 }
 
 function withSteps(taskId: string, fn: (steps: Step[]) => Step[]) {
@@ -140,14 +148,21 @@ const actions = {
   toggleTask(id: string) {
     const task = cache.tasks.find((t) => t.id === id);
     if (task === undefined) return;
-    patchTask(id, {
-      completed: !task.completed,
-      completedAt: task.completed ? null : todayISO(),
-    });
+    const completing = !task.completed;
+    patchTask(
+      id,
+      { completed: completing, completedAt: completing ? todayISO() : null },
+      // Ticking a repeating task off spawns its next occurrence.
+      completing && task.repeat !== null,
+    );
   },
 
   updateTask(id: string, patch: Partial<Task>) {
-    patchTask(id, patch);
+    const task = cache.tasks.find((t) => t.id === id);
+    // A repeat landing on a finished task spawns its next occurrence.
+    const maySpawn =
+      patch.repeat !== undefined && patch.repeat !== null && task?.completed === true;
+    patchTask(id, patch, maySpawn);
   },
 
   deleteTask(id: string) {

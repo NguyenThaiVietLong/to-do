@@ -29,10 +29,19 @@ export async function PATCH(
     return Response.json({ error: `No such task: ${id}` }, { status: 404 });
   }
 
-  // Only on the transition into completed, so re-saving a finished task never
-  // spawns a second copy.
+  // A finished task must not keep a live repeat rule — spawning the next
+  // occurrence clears it. Two edges lead here:
+  //   1. Ticking a repeating task off (the not-done → done transition). Re-saving
+  //      a finished task can't spawn a second copy: its rule is already gone.
+  //   2. A repeat set on an already-finished task. The tick has already happened,
+  //      so honour "ticking this off creates the next one" now instead of leaving
+  //      it stuck with no next occurrence forever.
+  // The branches are mutually exclusive on before.repeat, and each spawn is
+  // idempotent (repeat is cleared + the occurrence id is deterministic).
   if (!before.completed && updated.completed && before.repeat !== null) {
     await spawnNextOccurrence(before, todayISO());
+  } else if (updated.completed && before.repeat === null && updated.repeat !== null) {
+    await spawnNextOccurrence(updated, todayISO());
   }
 
   return Response.json(updated);
