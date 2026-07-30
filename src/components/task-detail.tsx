@@ -61,7 +61,7 @@ function nextDue(task: Task, today: string): string {
 }
 
 export function TaskDetail({ task, onClose }: { task: Task; onClose: () => void }) {
-  const { updateTask, deleteTask, toggleTask, addStep, toggleStep, deleteStep } =
+  const { updateTask, deleteTask, toggleTask, addStep, toggleStep, renameStep, deleteStep } =
     useStore();
   const [stepText, setStepText] = useState("");
   const titleRef = useRef<HTMLTextAreaElement>(null);
@@ -124,14 +124,16 @@ export function TaskDetail({ task, onClose }: { task: Task; onClose: () => void 
                     aria-label={`Step: ${s.title}`}
                     className="size-4 shrink-0 rounded-full"
                   />
-                  <span
+                  <input
+                    value={s.title}
+                    onChange={(e) => renameStep(task.id, s.id, e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                    aria-label={`Edit step ${s.title}`}
                     className={cn(
-                      "min-w-0 flex-1 truncate text-sm",
+                      "min-w-0 flex-1 bg-transparent text-sm outline-none",
                       s.done && "text-muted-foreground line-through",
                     )}
-                  >
-                    {s.title}
-                  </span>
+                  />
                   <button
                     onClick={() => deleteStep(task.id, s.id)}
                     aria-label={`Delete step ${s.title}`}

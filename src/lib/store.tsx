@@ -180,6 +180,12 @@ const actions = {
     );
   },
 
+  renameStep(taskId: string, stepId: string, title: string) {
+    withSteps(taskId, (steps) =>
+      steps.map((s) => (s.id === stepId ? { ...s, title } : s)),
+    );
+  },
+
   deleteStep(taskId: string, stepId: string) {
     withSteps(taskId, (steps) => steps.filter((s) => s.id !== stepId));
   },
