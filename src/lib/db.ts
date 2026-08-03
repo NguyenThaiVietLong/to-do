@@ -216,14 +216,21 @@ export async function listExists(id: string): Promise<boolean> {
 
 export async function insertTask(task: Task): Promise<Task> {
   await init();
+  const today = todayISO();
+  // A task created for today belongs in My Day straight away. Waiting for the
+  // next `promoteTodayToMyDay` would mean typing "Gym" with today's date and
+  // watching it not turn up until the page is reloaded.
+  const dueToday = !task.completed && task.dueDate === today;
+  const myDay = task.myDay || dueToday;
   const rows = await sql()`
     INSERT INTO tasks
       (id, list_id, title, note, completed, completed_at, created_at, due_date,
-       my_day, important, steps, repeat)
+       my_day, my_day_set_on, important, steps, repeat)
     VALUES
       (${task.id}, ${task.listId}, ${task.title}, ${task.note}, ${task.completed},
-       ${task.completedAt}, ${task.createdAt}, ${task.dueDate}, ${task.myDay},
-       ${task.important}, ${JSON.stringify(task.steps)}::jsonb,
+       ${task.completedAt}, ${task.createdAt}, ${task.dueDate}, ${myDay},
+       ${myDay ? today : null}, ${task.important},
+       ${JSON.stringify(task.steps)}::jsonb,
        ${task.repeat === null ? null : JSON.stringify(task.repeat)}::jsonb)
     RETURNING *
   `;
@@ -243,6 +250,12 @@ export async function updateTask(
   patch: Partial<Task>,
 ): Promise<Task | null> {
   await init();
+  const today = todayISO();
+  // Dating a task for today is the same event as the daily sweep finding it, so
+  // it joins My Day on the spot rather than at the next page load. An explicit
+  // myDay in the same patch still wins — that is the user saying otherwise.
+  const schedulesForToday = patch.myDay === undefined && patch.dueDate === today;
+  const entersMyDay = patch.myDay === true || schedulesForToday;
   // Every parameter is cast explicitly. Bound values arrive untyped, and a bare
   // NULL inside COALESCE/CASE makes Postgres give up on inferring the type.
   const rows = await sql()`
@@ -251,13 +264,19 @@ export async function updateTask(
       title        = COALESCE(${patch.title ?? null}::text, title),
       note         = COALESCE(${patch.note ?? null}::text, note),
       completed    = COALESCE(${patch.completed ?? null}::boolean, completed),
-      my_day       = COALESCE(${patch.myDay ?? null}::boolean, my_day),
-      -- Stamp the day a task is put into My Day by hand, so the overdue sweep
-      -- can tell "I chose this for today" from "left over from last week".
-      -- Only on the way in: not stamping on removal is what lets taking
-      -- something out stick for the rest of the day.
-      my_day_set_on = CASE WHEN ${patch.myDay === true}::boolean
-                       THEN ${todayISO()}::text ELSE my_day_set_on END,
+      -- The my_day_set_on guard reads the row as it was before this update, so
+      -- a task taken out of My Day earlier today is not dragged back in by an
+      -- edit to its due date.
+      my_day       = CASE WHEN ${schedulesForToday}::boolean
+                            AND (my_day_set_on IS NULL OR my_day_set_on <> ${today}::text)
+                       THEN TRUE
+                       ELSE COALESCE(${patch.myDay ?? null}::boolean, my_day) END,
+      -- Stamp the day a task enters My Day, so the overdue sweep can tell
+      -- "I chose this for today" from "left over from last week". Only on the
+      -- way in: not stamping on removal is what lets taking something out
+      -- stick for the rest of the day.
+      my_day_set_on = CASE WHEN ${entersMyDay}::boolean
+                       THEN ${today}::text ELSE my_day_set_on END,
       important    = COALESCE(${patch.important ?? null}::boolean, important),
       created_at   = COALESCE(${patch.createdAt ?? null}::text, created_at),
       completed_at = CASE WHEN ${"completedAt" in patch}::boolean

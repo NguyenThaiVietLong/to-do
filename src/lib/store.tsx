@@ -142,7 +142,10 @@ const actions = {
       ...opts,
     };
     setState({ ...cache, tasks: [task, ...cache.tasks] });
-    send(api("/tasks", { method: "POST", body: JSON.stringify(task) }));
+    const work = api("/tasks", { method: "POST", body: JSON.stringify(task) });
+    // A task dated today is put into My Day server-side. Only the server knows
+    // whether that applies, so pull the answer back rather than guess at it.
+    send(task.dueDate === todayISO() ? work.then(() => refresh()) : work);
   },
 
   toggleTask(id: string) {
@@ -162,7 +165,10 @@ const actions = {
     // A repeat landing on a finished task spawns its next occurrence.
     const maySpawn =
       patch.repeat !== undefined && patch.repeat !== null && task?.completed === true;
-    patchTask(id, patch, maySpawn);
+    // Moving a task to today's date can put it into My Day, a decision made
+    // server-side off `my_day_set_on` — which the mirror does not carry.
+    const mayJoinMyDay = patch.myDay === undefined && patch.dueDate === todayISO();
+    patchTask(id, patch, maySpawn || mayJoinMyDay);
   },
 
   deleteTask(id: string) {
