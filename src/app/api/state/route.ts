@@ -1,4 +1,9 @@
-import { generateRecurringTasks, promoteTodayToMyDay, readState } from "@/lib/db";
+import {
+  demoteOverdueFromMyDay,
+  generateRecurringTasks,
+  promoteTodayToMyDay,
+  readState,
+} from "@/lib/db";
 import { requireSession } from "@/lib/guard";
 import { todayISO } from "@/lib/date";
 
@@ -16,6 +21,8 @@ export async function GET() {
     // After generating, so a task created for today lands in My Day on the same
     // request rather than a page load later.
     await promoteTodayToMyDay(today);
+    // And clear out what yesterday left behind — those belong to Overdue now.
+    await demoteOverdueFromMyDay(today);
   } catch (err: unknown) {
     console.error("[recurrences] generation failed", err);
   }

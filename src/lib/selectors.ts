@@ -7,6 +7,7 @@ import type { AppState, Roadmap, Task, TaskList, ViewId } from "./types";
 
 export const SMART_LISTS = [
   { id: "myday", name: "My Day", icon: "☀️" },
+  { id: "overdue", name: "Overdue", icon: "⏰" },
   { id: "important", name: "Important", icon: "⭐" },
   { id: "planned", name: "Planned", icon: "🗓️" },
   { id: "all", name: "All", icon: "🗂️" },
@@ -18,6 +19,10 @@ export function viewTasks(state: AppState, view: ViewId): Task[] {
   switch (view) {
     case "myday":
       return tasks.filter((t) => t.myDay);
+    // Only open tasks: finishing something late is the way out of this list, so
+    // a completed task has no business still sitting in it.
+    case "overdue":
+      return tasks.filter((t) => !t.completed && isOverdue(t.dueDate));
     case "important":
       return tasks.filter((t) => t.important);
     case "planned":
