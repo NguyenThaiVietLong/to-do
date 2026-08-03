@@ -47,6 +47,7 @@ export default function TasksPage() {
         return { listId: inbox, extra: { dueDate: todayISO() } };
       case "all":
       case "completed":
+      case "overdue":
         return { listId: inbox, extra: {} };
       default:
         return { listId: view, extra: {} };
@@ -98,8 +99,10 @@ export default function TasksPage() {
           )}
         </header>
 
-        {/* Add box is hidden while searching, where it would have no target. */}
-        {!searching && view !== "completed" && (
+        {/* Add box is hidden while searching, where it would have no target, and
+            in the two backward-looking views, where a new task could never
+            satisfy the filter it was typed into. */}
+        {!searching && view !== "completed" && view !== "overdue" && (
           <div className="px-4 sm:px-8">
             <div className="flex items-center gap-3 rounded-md border bg-card px-3 py-3 shadow-xs focus-within:border-primary/60 focus-within:ring-3 focus-within:ring-ring/25">
               <Plus className="size-4 shrink-0 text-primary" />

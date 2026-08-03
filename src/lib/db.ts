@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import { addDays, daysBetween, fromISO, mondayIndex, toISO } from "./date";
+import { addDays, daysBetween, fromISO, mondayIndex, toISO, todayISO } from "./date";
 import { LISTS } from "./seed";
 import type { AppState, Recurrence, Repeat, Roadmap, Step, Task, TaskList } from "./types";
 
@@ -252,6 +252,12 @@ export async function updateTask(
       note         = COALESCE(${patch.note ?? null}::text, note),
       completed    = COALESCE(${patch.completed ?? null}::boolean, completed),
       my_day       = COALESCE(${patch.myDay ?? null}::boolean, my_day),
+      -- Stamp the day a task is put into My Day by hand, so the overdue sweep
+      -- can tell "I chose this for today" from "left over from last week".
+      -- Only on the way in: not stamping on removal is what lets taking
+      -- something out stick for the rest of the day.
+      my_day_set_on = CASE WHEN ${patch.myDay === true}::boolean
+                       THEN ${todayISO()}::text ELSE my_day_set_on END,
       important    = COALESCE(${patch.important ?? null}::boolean, important),
       created_at   = COALESCE(${patch.createdAt ?? null}::text, created_at),
       completed_at = CASE WHEN ${"completedAt" in patch}::boolean
@@ -548,6 +554,33 @@ export async function promoteTodayToMyDay(today: string): Promise<number> {
      WHERE due_date = ${today}
        AND completed = FALSE
        AND (my_day_set_on IS NULL OR my_day_set_on <> ${today})
+    RETURNING id
+  `;
+  return (rows as Row[]).length;
+}
+
+/**
+ * Once a task's day has passed it leaves My Day — Overdue is where it lives now.
+ *
+ * The counterpart to `promoteTodayToMyDay`: that one fills the day, this one
+ * empties out what the day left behind, so My Day stays a picture of today
+ * rather than a pile that grows all week.
+ *
+ * `my_day_set_on <> today` spares anything put into My Day today. Deliberately
+ * dragging an overdue task into today is the normal way to finally deal with
+ * it, and having the next page load rip it back out would make that pointless.
+ * Tomorrow it drops back to Overdue like anything else.
+ */
+export async function demoteOverdueFromMyDay(today: string): Promise<number> {
+  await init();
+  const rows = await sql()`
+    UPDATE tasks
+       SET my_day = FALSE
+     WHERE my_day = TRUE
+       AND completed = FALSE
+       AND due_date IS NOT NULL
+       AND due_date < ${today}::text
+       AND (my_day_set_on IS NULL OR my_day_set_on <> ${today}::text)
     RETURNING id
   `;
   return (rows as Row[]).length;

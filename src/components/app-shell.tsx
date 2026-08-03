@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useTheme } from "@/components/theme-provider";
 import { SMART_LISTS } from "@/lib/selectors";
+import { isOverdue } from "@/lib/date";
 import type { ViewId } from "@/lib/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -95,6 +96,8 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
     switch (id) {
       case "myday":
         return tasks.filter((t) => t.myDay && !t.completed).length;
+      case "overdue":
+        return tasks.filter((t) => !t.completed && isOverdue(t.dueDate)).length;
       case "important":
         return tasks.filter((t) => t.important && !t.completed).length;
       case "planned":

@@ -43,6 +43,7 @@ export interface TaskList {
 
 export type SmartListId =
   | "myday"
+  | "overdue"
   | "important"
   | "planned"
   | "all"
