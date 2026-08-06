@@ -605,6 +605,41 @@ export async function demoteOverdueFromMyDay(today: string): Promise<number> {
   return (rows as Row[]).length;
 }
 
+/**
+ * How long a task is allowed to sit in Overdue before it is deleted, in whole
+ * days — 3 days is the 72 hours the list is willing to wait.
+ */
+export const OVERDUE_GRACE_DAYS = 3;
+
+/**
+ * Drop anything that has been overdue for more than 72 hours.
+ *
+ * Overdue is a holding pen, not an archive: a task nobody has dealt with three
+ * days after its day passed is not going to be, and leaving it there only
+ * buries the ones that still matter.
+ *
+ * Dates here are whole days, so the clock is counted in days too. A task due on
+ * D is not overdue until D+1 begins, which puts 72 hours at the start of D+4 —
+ * so D+1 is the oldest due date that still gets to stay, and anything before it
+ * goes. Completed tasks are never touched: they left Overdue by finishing, and
+ * they are the entire history the streaks and heatmap are drawn from.
+ */
+export async function purgeStaleOverdue(
+  today: string,
+  graceDays = OVERDUE_GRACE_DAYS,
+): Promise<number> {
+  await init();
+  const cutoff = addDays(today, -graceDays);
+  const rows = await sql()`
+    DELETE FROM tasks
+     WHERE completed = FALSE
+       AND due_date IS NOT NULL
+       AND due_date < ${cutoff}::text
+    RETURNING id
+  `;
+  return (rows as Row[]).length;
+}
+
 /** Wipe everything and write the given state back. */
 export async function replaceState(state: AppState): Promise<AppState> {
   await init();
