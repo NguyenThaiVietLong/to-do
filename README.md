@@ -22,7 +22,11 @@ screen.
 
 **Tasks** (`/`)
 
-- Smart lists: My Day, Important, Planned, All, Completed
+- Smart lists: My Day, Overdue, Important, Planned, All, Completed
+- Anything due today joins My Day, and drops back to Overdue once its day has
+  passed — rechecked on load and whenever the date changes under an open tab
+- Overdue clears itself out: a task still sitting there 72 hours after its due
+  date passed is deleted
 - Custom lists — add and delete from the sidebar
 - Add, rename, complete, star, delete tasks
 - Detail pane: steps, Add to My Day, due date, notes

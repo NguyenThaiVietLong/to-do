@@ -97,6 +97,13 @@ export default function TasksPage() {
               {formatLong(todayISO())}
             </p>
           )}
+          {/* Say so up front: this list deletes things, and a task vanishing
+              with no warning would read as a bug. */}
+          {view === "overdue" && !searching && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Deleted 72 hours after the due date passes
+            </p>
+          )}
         </header>
 
         {/* Add box is hidden while searching, where it would have no target, and
