@@ -59,6 +59,32 @@ function send(work: Promise<unknown>) {
   });
 }
 
+/* -------------------------------------------------------------------------- */
+/* Day rollover                                                                */
+/*                                                                             */
+/* My Day, Overdue and every "Today" label are answers to "what day is it",     */
+/* and the server only works that out while serving `/api/state`. Since that is */
+/* fetched on boot, a tab left open overnight kept showing yesterday's My Day —  */
+/* nothing due today ever moved into it — until someone reloaded by hand.       */
+/*                                                                             */
+/* So watch the clock and refetch on the tick where the date actually changes.  */
+/* The refetch is what makes the server run its sweeps, and the new snapshot    */
+/* re-renders everything that reads `todayISO()` at render time.                */
+/* -------------------------------------------------------------------------- */
+
+const DAY_CHECK_MS = 60_000;
+
+let currentDay = "";
+
+function checkDayRollover() {
+  const today = todayISO();
+  if (today === currentDay) return;
+  currentDay = today;
+  refresh().catch((err: unknown) => {
+    console.error("[store] day rollover resync failed", err);
+  });
+}
+
 function boot() {
   if (booted) return;
   booted = true;
@@ -71,12 +97,22 @@ function boot() {
     // Storage blocked — nothing to clean up.
   }
 
+  currentDay = todayISO();
   refresh().catch((err: unknown) => {
     console.error("[store] initial load failed", err);
     // Let the UI render empty instead of hanging on the loading state forever.
     ready = true;
     emit();
   });
+
+  window.setInterval(checkDayRollover, DAY_CHECK_MS);
+  // A background tab has its timers throttled and a sleeping laptop has none at
+  // all, so the minute tick can be hours late. Coming back to the tab is the
+  // moment the date on screen has to be right, so check then as well.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkDayRollover();
+  });
+  window.addEventListener("focus", checkDayRollover);
 }
 
 function subscribe(listener: () => void) {
