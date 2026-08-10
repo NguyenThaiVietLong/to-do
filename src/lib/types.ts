@@ -18,6 +18,13 @@ export type Repeat =
   | { kind: "weekly" }
   | { kind: "monthly" };
 
+/**
+ * MoSCoW priority, in descending order of commitment. The four are a
+ * negotiation about scope, not a severity scale: "won't have" is a decision
+ * that was made, which is why it is a bucket of its own rather than a deletion.
+ */
+export type Moscow = "must" | "should" | "could" | "wont";
+
 export interface Task {
   id: string;
   listId: string;
@@ -31,6 +38,8 @@ export interface Task {
   dueDate: string | null;
   myDay: boolean;
   important: boolean;
+  /** null = not triaged yet. Sorting that has not happened is not "won't have". */
+  moscow: Moscow | null;
   steps: Step[];
 }
 

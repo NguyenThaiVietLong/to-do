@@ -1,9 +1,10 @@
 "use client";
 
-import { CalendarDays, FileText, Star, Sun } from "lucide-react";
+import { CalendarDays, FileText, Flag, Star, Sun } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { formatDue, isOverdue } from "@/lib/date";
+import { moscowLabel } from "@/lib/selectors";
 import type { Task } from "@/lib/types";
 
 interface Props {
@@ -39,6 +40,13 @@ export function TaskItem({
       <span key="myday" className="inline-flex items-center gap-1">
         <Sun className="size-3" aria-hidden />
         My Day
+      </span>,
+    );
+  if (task.moscow !== null)
+    meta.push(
+      <span key="moscow" className="inline-flex items-center gap-1">
+        <Flag className="size-3" aria-hidden />
+        {moscowLabel(task.moscow)}
       </span>,
     );
   if (task.steps.length > 0)

@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CalendarDays, Plus, Repeat as RepeatIcon, Star, Sun, Trash2, X } from "lucide-react";
+import { CalendarDays, Flag, Plus, Repeat as RepeatIcon, Star, Sun, Trash2, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { addDays, formatLong, fromISO, mondayIndex, todayISO, toISO } from "@/lib/date";
 import { useStore } from "@/lib/store";
-import type { Repeat, Task } from "@/lib/types";
+import { MOSCOW_BUCKETS } from "@/lib/selectors";
+import type { Moscow, Repeat, Task } from "@/lib/types";
 
 /**
  * "Weekly" is a plain 7-day cadence from the task's anchor — its due date, or
@@ -197,6 +198,33 @@ export function TaskDetail({ task, onClose }: { task: Task; onClose: () => void 
               aria-label="Due date"
               className="bg-transparent text-sm text-muted-foreground outline-none"
             />
+          </label>
+
+          <label className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-sm hover:bg-secondary/60">
+            <Flag
+              className={cn(
+                "size-4 shrink-0",
+                task.moscow !== null ? "text-primary" : "text-muted-foreground",
+              )}
+            />
+            <span className="flex-1">{task.moscow !== null ? "Priority" : "Set priority"}</span>
+            <select
+              value={task.moscow ?? "none"}
+              onChange={(e) =>
+                updateTask(task.id, {
+                  moscow: e.target.value === "none" ? null : (e.target.value as Moscow),
+                })
+              }
+              aria-label="MoSCoW priority"
+              className="bg-transparent text-sm text-muted-foreground outline-none"
+            >
+              <option value="none">Not prioritised</option>
+              {MOSCOW_BUCKETS.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-sm hover:bg-secondary/60">

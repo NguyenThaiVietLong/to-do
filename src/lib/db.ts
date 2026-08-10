@@ -1,7 +1,16 @@
 import { neon } from "@neondatabase/serverless";
 import { addDays, daysBetween, fromISO, mondayIndex, toISO, todayISO } from "./date";
 import { LISTS } from "./seed";
-import type { AppState, Recurrence, Repeat, Roadmap, Step, Task, TaskList } from "./types";
+import type {
+  AppState,
+  Moscow,
+  Recurrence,
+  Repeat,
+  Roadmap,
+  Step,
+  Task,
+  TaskList,
+} from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Postgres store                                                              */
@@ -74,6 +83,8 @@ async function migrate(): Promise<void> {
   // the CREATE above — an existing database never re-runs that.
   await db`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS my_day_set_on TEXT`;
   await db`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat JSONB`;
+  // NULL is a real state here — "not triaged yet" — so no default is set.
+  await db`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS moscow TEXT`;
 
   await db`
     CREATE TABLE IF NOT EXISTS recurrences (
@@ -142,6 +153,7 @@ function toTask(r: Row): Task {
     dueDate: (r.due_date as string | null) ?? null,
     myDay: r.my_day as boolean,
     important: r.important as boolean,
+    moscow: (r.moscow as Moscow | null) ?? null,
     steps: (r.steps as Step[] | null) ?? [],
     repeat: (r.repeat as Repeat | null) ?? null,
   };
@@ -225,11 +237,11 @@ export async function insertTask(task: Task): Promise<Task> {
   const rows = await sql()`
     INSERT INTO tasks
       (id, list_id, title, note, completed, completed_at, created_at, due_date,
-       my_day, my_day_set_on, important, steps, repeat)
+       my_day, my_day_set_on, important, moscow, steps, repeat)
     VALUES
       (${task.id}, ${task.listId}, ${task.title}, ${task.note}, ${task.completed},
        ${task.completedAt}, ${task.createdAt}, ${task.dueDate}, ${myDay},
-       ${myDay ? today : null}, ${task.important},
+       ${myDay ? today : null}, ${task.important}, ${task.moscow},
        ${JSON.stringify(task.steps)}::jsonb,
        ${task.repeat === null ? null : JSON.stringify(task.repeat)}::jsonb)
     RETURNING *
@@ -278,6 +290,10 @@ export async function updateTask(
       my_day_set_on = CASE WHEN ${entersMyDay}::boolean
                        THEN ${today}::text ELSE my_day_set_on END,
       important    = COALESCE(${patch.important ?? null}::boolean, important),
+      -- Nullable, and null is a value the caller may be setting on purpose:
+      -- clearing a priority is how a task goes back to being untriaged.
+      moscow       = CASE WHEN ${"moscow" in patch}::boolean
+                       THEN ${patch.moscow ?? null}::text ELSE moscow END,
       created_at   = COALESCE(${patch.createdAt ?? null}::text, created_at),
       completed_at = CASE WHEN ${"completedAt" in patch}::boolean
                        THEN ${patch.completedAt ?? null}::text ELSE completed_at END,
@@ -358,10 +374,10 @@ export async function spawnNextOccurrence(
   const rows = await sql()`
     INSERT INTO tasks
       (id, list_id, title, note, completed, completed_at, created_at, due_date,
-       my_day, important, steps, repeat)
+       my_day, important, moscow, steps, repeat)
     VALUES
       (${next.id}, ${next.listId}, ${next.title}, ${next.note}, FALSE, NULL,
-       ${next.createdAt}, ${next.dueDate}, FALSE, ${next.important},
+       ${next.createdAt}, ${next.dueDate}, FALSE, ${next.important}, ${next.moscow},
        ${JSON.stringify(next.steps)}::jsonb, ${JSON.stringify(task.repeat)}::jsonb)
     ON CONFLICT (id) DO NOTHING
     RETURNING *
@@ -659,11 +675,11 @@ export async function replaceState(state: AppState): Promise<AppState> {
     await db`
       INSERT INTO tasks
         (id, list_id, title, note, completed, completed_at, created_at, due_date,
-         my_day, important, steps, repeat)
+         my_day, important, moscow, steps, repeat)
       VALUES
         (${task.id}, ${task.listId}, ${task.title}, ${task.note}, ${task.completed},
          ${task.completedAt}, ${task.createdAt}, ${task.dueDate}, ${task.myDay},
-         ${task.important}, ${JSON.stringify(task.steps)}::jsonb,
+         ${task.important}, ${task.moscow}, ${JSON.stringify(task.steps)}::jsonb,
          ${task.repeat === null ? null : JSON.stringify(task.repeat)}::jsonb)
     `;
   }

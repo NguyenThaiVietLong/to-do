@@ -1,5 +1,5 @@
 import { todayISO } from "./date";
-import type { Recurrence, Repeat, Roadmap, Step, Task, TaskList } from "./types";
+import type { Moscow, Recurrence, Repeat, Roadmap, Step, Task, TaskList } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Request body validation                                                     */
@@ -57,6 +57,14 @@ function parseRepeat(v: unknown): Repeat | null | undefined {
   return undefined;
 }
 
+const MOSCOW: readonly string[] = ["must", "should", "could", "wont"];
+
+/** `undefined` means invalid; `null` means "back to untriaged". */
+function parseMoscow(v: unknown): Moscow | null | undefined {
+  if (v === null) return null;
+  return typeof v === "string" && MOSCOW.includes(v) ? (v as Moscow) : undefined;
+}
+
 /** Fields a client may change on a task. Returns null if any is malformed. */
 export function parseTaskPatch(body: unknown): Partial<Task> | null {
   const b = asRecord(body);
@@ -105,6 +113,11 @@ export function parseTaskPatch(body: unknown): Partial<Task> | null {
     if (rep === undefined) return null;
     patch.repeat = rep;
   }
+  if ("moscow" in b) {
+    const m = parseMoscow(b.moscow);
+    if (m === undefined) return null;
+    patch.moscow = m;
+  }
   return patch;
 }
 
@@ -138,6 +151,7 @@ export function parseNewTask(body: unknown): Task | null {
     dueDate: null,
     myDay: false,
     important: false,
+    moscow: null,
     steps: [],
     repeat: null,
     ...patch,

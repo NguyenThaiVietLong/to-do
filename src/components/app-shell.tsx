@@ -178,6 +178,19 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               onClick={() => go(s.id)}
             />
           ))}
+          {/* A board rather than a filtered list, so it is a page of its own and
+              not a view id. Its count is what the board is asking you to do:
+              the open tasks still without a bucket. */}
+          <SidebarRow
+            icon={<span aria-hidden>🧭</span>}
+            label="MoSCoW"
+            count={ready ? tasks.filter((t) => !t.completed && t.moscow === null).length : 0}
+            active={pathname === "/moscow"}
+            onClick={() => {
+              router.push("/moscow");
+              onClose();
+            }}
+          />
         </ul>
 
         <hr className="my-2 border-sidebar-border" />

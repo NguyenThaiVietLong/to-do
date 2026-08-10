@@ -173,6 +173,7 @@ const actions = {
       dueDate: null,
       myDay: false,
       important: false,
+      moscow: null,
       steps: [],
       repeat: null,
       ...opts,

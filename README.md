@@ -29,9 +29,19 @@ screen.
   date passed is deleted
 - Custom lists — add and delete from the sidebar
 - Add, rename, complete, star, delete tasks
-- Detail pane: steps, Add to My Day, due date, notes
+- Detail pane: steps, Add to My Day, due date, MoSCoW priority, notes
 - Search across every list
 - Light and dark theme, following the OS until you pick one
+
+**MoSCoW** (`/moscow`)
+
+- The four buckets side by side — must, should, could, won't have
+- Drag a card between columns, or use the select on the card, which is what
+  keeps the board workable by keyboard and on a phone
+- A tray underneath holds everything not sorted yet; emptying it is the point
+  of the view, and its size is the count on the sidebar row
+- Open tasks only — prioritising asks what to do next, so finished work is a
+  per-column count rather than a card
 
 **Roadmap** (`/roadmap`)
 
@@ -87,8 +97,12 @@ must always be reachable as text.
 Four tables — `lists`, `tasks`, `roadmaps` and `recurrences` — created on first use by
 [db.ts](src/lib/db.ts). Deleting a list cascades to its tasks and its roadmap.
 
-Two decisions worth keeping if you touch the schema:
+Three decisions worth keeping if you touch the schema:
 
+- **`tasks.moscow` is nullable, with no default.** `NULL` is a real state — the
+  task has not been triaged — and it is not the same answer as "won't have",
+  which is a decision somebody made. The board keeps the two apart, so the
+  column must too.
 - **Dates are `TEXT`, not `DATE`.** Every date in this app is a local-calendar
   `YYYY-MM-DD` string (see [date.ts](src/lib/date.ts)). Letting the driver hand
   back a `Date` would reintroduce exactly the UTC slide that convention exists

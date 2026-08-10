@@ -1,5 +1,5 @@
 import { addDays, todayISO } from "./date";
-import type { AppState, Task, TaskList } from "./types";
+import type { AppState, Moscow, Task, TaskList } from "./types";
 
 /**
  * First-run sample data. A brand-new install with an empty dashboard teaches
@@ -68,12 +68,22 @@ const STEPS: Record<string, string[]> = {
   "Finish IELTS writing task 2": ["Read the question", "Plan the paragraphs", "Write and time it"],
 };
 
+/**
+ * MoSCoW buckets are handed out by rotation rather than drawn from `rand()`, so
+ * adding the field leaves the seeded history — and with it every chart — exactly
+ * as it was. The `null` in the cycle is deliberate: the board needs something in
+ * its "not prioritised" tray to be worth looking at.
+ */
+const MOSCOW_CYCLE: (Moscow | null)[] = ["must", "should", "could", "wont", null];
+
 export function buildSeed(): AppState {
   const rand = mulberry32(20260719);
   const today = todayISO();
   const tasks: Task[] = [];
   let n = 0;
   const id = () => `t${(n += 1)}`;
+  let turn = 0;
+  const nextBucket = () => MOSCOW_CYCLE[turn++ % MOSCOW_CYCLE.length];
 
   // --- Open tasks -----------------------------------------------------------
   for (const list of LISTS) {
@@ -92,6 +102,7 @@ export function buildSeed(): AppState {
         dueDate: hasDue ? addDays(today, Math.floor(rand() * 10) - 2) : null,
         myDay: rand() > 0.62,
         important: rand() > 0.75,
+        moscow: nextBucket(),
         repeat: null,
         steps: (STEPS[title] ?? []).map((s, i) => ({
           id: `${id()}s${i}`,
@@ -135,6 +146,7 @@ export function buildSeed(): AppState {
         dueDate: rand() > 0.5 ? date : null,
         myDay: false,
         important: rand() > 0.88,
+        moscow: nextBucket(),
         repeat: null,
         steps: [],
       });

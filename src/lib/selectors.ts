@@ -1,5 +1,5 @@
 import { addDays, daysBetween, fromISO, isOverdue, mondayIndex, todayISO, toISO } from "./date";
-import type { AppState, Roadmap, Task, TaskList, ViewId } from "./types";
+import type { AppState, Moscow, Roadmap, Task, TaskList, ViewId } from "./types";
 
 /* -------------------------------------------------------------------------- */
 /* Views                                                                       */
@@ -58,6 +58,82 @@ export function sortTasks(tasks: Task[], today = todayISO()): Task[] {
     if (a.important !== b.important) return a.important ? -1 : 1;
     return a.createdAt < b.createdAt ? 1 : -1;
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* MoSCoW                                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** The four buckets, in the order the method states them. */
+export const MOSCOW_BUCKETS = [
+  {
+    id: "must",
+    name: "Must have",
+    short: "Must",
+    hint: "Non-negotiable — without it the whole thing has failed",
+  },
+  {
+    id: "should",
+    name: "Should have",
+    short: "Should",
+    hint: "Important, but there is a way through without it",
+  },
+  {
+    id: "could",
+    name: "Could have",
+    short: "Could",
+    hint: "Worth doing if the time is there — the first thing to drop",
+  },
+  {
+    id: "wont",
+    name: "Won't have",
+    short: "Won't",
+    hint: "Agreed as out of scope for now. Decided, not forgotten",
+  },
+] as const satisfies readonly { id: Moscow; name: string; short: string; hint: string }[];
+
+export function moscowLabel(m: Moscow): string {
+  return MOSCOW_BUCKETS.find((b) => b.id === m)?.short ?? m;
+}
+
+export interface MoscowColumn {
+  id: Moscow;
+  name: string;
+  hint: string;
+  /** Open tasks in this bucket. */
+  tasks: Task[];
+  /** How many finished ones carried it — history, not work in hand. */
+  done: number;
+}
+
+export interface MoscowBoard {
+  columns: MoscowColumn[];
+  /** Open tasks with no priority yet: the pile the board exists to clear. */
+  untriaged: Task[];
+}
+
+/**
+ * The board, from open tasks only.
+ *
+ * Prioritising is a question about what to do next, so a completed task has no
+ * place on it — but the count of finished work per bucket is kept, because
+ * "Must have: 4 open, 30 done" is the sentence the board is meant to produce.
+ */
+export function moscowBoard(state: AppState, today = todayISO()): MoscowBoard {
+  const open = sortTasks(
+    state.tasks.filter((t) => !t.completed),
+    today,
+  );
+  return {
+    columns: MOSCOW_BUCKETS.map((b) => ({
+      id: b.id,
+      name: b.name,
+      hint: b.hint,
+      tasks: open.filter((t) => t.moscow === b.id),
+      done: state.tasks.filter((t) => t.completed && t.moscow === b.id).length,
+    })),
+    untriaged: open.filter((t) => t.moscow === null),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
