@@ -48,15 +48,104 @@ export function listName(lists: TaskList[], listId: string): string {
   return lists.find((l) => l.id === listId)?.name ?? "Tasks";
 }
 
-/** Open tasks first, then completed. Overdue floats to the top of the open set. */
+/**
+ * Finished work, newest first. Shared by every view: a completed task is a
+ * record of what happened rather than a queue of what to do, so it reads
+ * backwards from the most recent finish date whatever list it turns up in.
+ */
+function compareCompleted(a: Task, b: Task): number {
+  if (a.completedAt !== b.completedAt) {
+    // A task ticked off before the app recorded finish dates has none. It
+    // sinks rather than floats: an unknown date is old news, not fresh.
+    if (a.completedAt === null) return 1;
+    if (b.completedAt === null) return -1;
+    return a.completedAt < b.completedAt ? 1 : -1;
+  }
+  // Same day, so fall back to newest-first — the order they'd have had before
+  // being ticked off.
+  return a.createdAt < b.createdAt ? 1 : -1;
+}
+
+/**
+ * Open tasks first, then completed. Overdue floats to the top of the open set;
+ * finished work is ordered by the day it was finished, newest first.
+ *
+ * The two halves answer different questions. Open tasks are a queue — what
+ * needs doing next. Completed tasks are a record — what happened, read
+ * backwards from the most recent, which is why they sort on the finish date
+ * rather than on when they were created.
+ */
 export function sortTasks(tasks: Task[], today = todayISO()): Task[] {
   return [...tasks].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    if (a.completed) return compareCompleted(a, b);
+
     const ao = isOverdue(a.dueDate, today) ? 0 : 1;
     const bo = isOverdue(b.dueDate, today) ? 0 : 1;
     if (ao !== bo) return ao - bo;
     if (a.important !== b.important) return a.important ? -1 : 1;
     return a.createdAt < b.createdAt ? 1 : -1;
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* My Day ordering                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Deadline pressure, the outer key for My Day. Lower sorts first.
+ *
+ * Undated tasks rank above ones due later on purpose: pulling a task into My
+ * Day *is* the commitment to do it today, whereas a task due next week is
+ * merely a head start and can wait until the day's real work is done.
+ */
+function urgencyRank(t: Task, today: string): number {
+  if (isOverdue(t.dueDate, today)) return 0;
+  if (t.dueDate === today) return 1;
+  if (t.dueDate === null) return 2;
+  return 3;
+}
+
+/** MoSCoW as a sort key. The gap at 3 is where untriaged tasks land. */
+const MOSCOW_ORDER: Record<Moscow, number> = { must: 0, should: 1, could: 2, wont: 4 };
+
+/**
+ * Untriaged sits between "could" and "won't". Sorting that has not happened is
+ * not a decision to drop the task, so it must not sink below one that was.
+ */
+const UNTRIAGED_ORDER = 3;
+
+/**
+ * The order My Day is read in.
+ *
+ * Deadline leads and MoSCoW decides within each deadline group, because My Day
+ * is a list you execute rather than a list you plan — the MoSCoW board already
+ * answers "what matters most", and this one has to answer "what do I pick up
+ * next". Nesting them this way still floats an overdue "must have" to the very
+ * top without letting importance outrank a date that has already passed.
+ *
+ * Ties break oldest-first, the reverse of every other view. A task that has
+ * been carried across three days is the one worth confronting; in an inbox the
+ * newest arrival deserves the top, but here it would quietly bury the backlog.
+ */
+export function sortMyDay(tasks: Task[], today = todayISO()): Task[] {
+  return [...tasks].sort((a, b) => {
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    if (a.completed) return compareCompleted(a, b);
+
+    const urgency = urgencyRank(a, today) - urgencyRank(b, today);
+    if (urgency !== 0) return urgency;
+
+    const priority =
+      (a.moscow === null ? UNTRIAGED_ORDER : MOSCOW_ORDER[a.moscow]) -
+      (b.moscow === null ? UNTRIAGED_ORDER : MOSCOW_ORDER[b.moscow]);
+    if (priority !== 0) return priority;
+
+    // The star is a lighter signal than a MoSCoW bucket, so it only breaks ties
+    // between tasks the triage already called equal.
+    if (a.important !== b.important) return a.important ? -1 : 1;
+
+    return a.createdAt < b.createdAt ? -1 : 1;
   });
 }
 
