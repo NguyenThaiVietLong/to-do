@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { useView } from "@/components/app-shell";
 import { TaskItem } from "@/components/task-item";
 import { TaskDetail } from "@/components/task-detail";
-import { listName, sortTasks, viewMeta, viewTasks } from "@/lib/selectors";
+import { listName, sortMyDay, sortTasks, viewMeta, viewTasks } from "@/lib/selectors";
 import { formatLong, todayISO } from "@/lib/date";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +26,9 @@ export default function TasksPage() {
           t.title.toLowerCase().includes(query.trim().toLowerCase()),
         )
       : viewTasks(store, view);
-    const sorted = sortTasks(base);
+    // Search reaches across every list, so its results are not a day's plan and
+    // don't get the day's ordering.
+    const sorted = view === "myday" && !searching ? sortMyDay(base) : sortTasks(base);
     return {
       open: sorted.filter((t) => !t.completed),
       done: sorted.filter((t) => t.completed),
