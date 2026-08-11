@@ -48,10 +48,32 @@ export function listName(lists: TaskList[], listId: string): string {
   return lists.find((l) => l.id === listId)?.name ?? "Tasks";
 }
 
-/** Open tasks first, then completed. Overdue floats to the top of the open set. */
+/**
+ * Open tasks first, then completed. Overdue floats to the top of the open set;
+ * finished work is ordered by the day it was finished, newest first.
+ *
+ * The two halves answer different questions. Open tasks are a queue — what
+ * needs doing next. Completed tasks are a record — what happened, read
+ * backwards from the most recent, which is why they sort on the finish date
+ * rather than on when they were created.
+ */
 export function sortTasks(tasks: Task[], today = todayISO()): Task[] {
   return [...tasks].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
+
+    if (a.completed) {
+      if (a.completedAt !== b.completedAt) {
+        // A task ticked off before the app recorded finish dates has none. It
+        // sinks rather than floats: an unknown date is old news, not fresh.
+        if (a.completedAt === null) return 1;
+        if (b.completedAt === null) return -1;
+        return a.completedAt < b.completedAt ? 1 : -1;
+      }
+      // Same day, so fall back to newest-first — the order they'd have had
+      // before being ticked off.
+      return a.createdAt < b.createdAt ? 1 : -1;
+    }
+
     const ao = isOverdue(a.dueDate, today) ? 0 : 1;
     const bo = isOverdue(b.dueDate, today) ? 0 : 1;
     if (ao !== bo) return ao - bo;

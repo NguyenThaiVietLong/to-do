@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, FileText, Flag, Star, Sun } from "lucide-react";
+import { CalendarDays, Check, FileText, Flag, Star, Sun } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { formatDue, isOverdue } from "@/lib/date";
@@ -35,6 +35,15 @@ export function TaskItem({
 
   const meta: React.ReactNode[] = [];
   if (showList) meta.push(<span key="list">{listLabel}</span>);
+  // Leads the line on a finished task: it is the field the completed list is
+  // ordered by, so the ordering has to be readable off the rows themselves.
+  if (task.completed && task.completedAt)
+    meta.push(
+      <span key="done" className="inline-flex items-center gap-1">
+        <Check className="size-3" aria-hidden />
+        Done {formatDue(task.completedAt)}
+      </span>,
+    );
   if (task.myDay && showMyDay)
     meta.push(
       <span key="myday" className="inline-flex items-center gap-1">
